@@ -425,7 +425,7 @@ def _build(bus: EventBus | None = None):
         store=store, eventlog=eventlog, llm=MemoryLLM(curated), bus=bus,
     )
 
-    from core.adapter.web.adapter import WebAdapter
+    from core.adapter.web.adapter import LOCAL_HOSTS, WebAdapter
 
     # 实时日志流（§18.2 目录里订阅者为「日志」的那几条）：订阅总线，
     # 供 WebUI 的 /logs 页看「塔利在干什么」。日志镜像 handler 在 _serve 里挂。
@@ -465,9 +465,11 @@ def _build(bus: EventBus | None = None):
     # 注册器，串起来一起挂。
     from core.config.api import build_platforms_routes, build_settings_routes
     from core.image_api import build_upload_routes
+    from core.persona_api import build_persona_routes
 
     def _control_plane(app) -> None:
         build_settings_routes()(app)
+        build_persona_routes()(app)
         build_upload_routes()(app)
         build_platforms_routes(qq_service)(app)
 
@@ -483,6 +485,9 @@ def _build(bus: EventBus | None = None):
         sessions_provider=store.sessions_for_web,
         stream=stream,
         extra_routes=_control_plane,
+        # Host 白名单（防 DNS rebinding）：只认用本机名字访问的请求。
+        # 面板把记忆原文、人格、全平台会话做成接口之前必须先有这层（面板 04 §6）。
+        trusted_hosts=LOCAL_HOSTS,
     )
     registry.register(web_adapter)
     adapters = [web_adapter]  # QQ 不进这个列表——它的启停归 QQService
