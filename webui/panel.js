@@ -289,6 +289,7 @@ async function renderFields(page) {
     const g = h("section", { class: "group" }, h("h2", { text: sec.title }), sec.note ? h("p", { text: sec.note }) : null, rows.map((r) => r.el));
     groups.push({ g, rows }); form.append(g);
   }
+  if (page === "model") form.append(testGroup());
   if (page === "settings") form.append(appearanceGroup(), aboutGroup());
   const paintSearch = () => {
     let n = 0;
@@ -319,8 +320,25 @@ function appearanceGroup() {
   return h("section", { class: "group" }, h("h2", { text: "外观" }),
     h("div", { class: "f" }, h("div", null, h("label", { text: "主题" })), h("div", null, seg, h("div", { class: "hint", text: "只存在这个浏览器里；跟随系统时，电脑切换深浅色面板也跟着变" })), h("div")));
 }
+function testGroup() {
+  const out = h("span", { class: "state", style: "margin-left:12px" });
+  const btn = h("button", { class: "btn", type: "button", text: "测试已保存的配置", onclick: async () => {
+    if (dirtyList().some(({ s }) => s.key.startsWith("llm."))) { out.className = "state bad"; out.textContent = "有改动还没保存，先保存再测"; return; }
+    btn.disabled = true; out.className = "state"; out.textContent = "测试中…";
+    const { json } = await postJSON("/api/settings/test-llm", {}).catch(() => ({ json: { ok: false, error: "请求没发出去" } }));
+    btn.disabled = false;
+    out.className = "state" + (json.ok ? "" : " bad");
+    out.textContent = json.ok ? `通了，${json.ms} 毫秒，${json.model}` : json.error || "没通";
+  } });
+  return h("section", { class: "group" }, h("h2", { text: "连通性" }),
+    h("div", { class: "f" }, h("div", null, h("label", { text: "测试连接" })),
+      h("div", null, btn, out, h("div", { class: "hint", text: "只测保存过的地址和密钥（请求 网关/models）；改了要先保存" })), h("div")));
+}
 function aboutGroup() {
+  const ver = h("span", { class: "mono", text: "…" });
+  getJSON("/api/about").then((j) => { ver.textContent = j.ok ? `TaleAI ${j.version}` : "读不到"; }).catch(() => { ver.textContent = "读不到"; });
   return h("section", { class: "group" }, h("h2", { text: "关于" }),
+    h("div", { class: "f" }, h("div", null, h("label", { text: "版本" })), h("div", null, ver), h("div")),
     h("div", { class: "f" }, h("div", null, h("label", { text: "旧版设置页" })),
       h("div", null, h("a", { href: "/static/settings.html", text: "/static/settings.html" }), h("div", { class: "hint", text: "面板接管了它的全部功能；旧页先保留一个版本，之后删除" })), h("div")));
 }
@@ -359,7 +377,7 @@ async function saveFields() {
     if (json.ok) notes.push(json.note); else errors.push(json.error || "保存失败");
   }
   try { await loadForm(Object.keys(byDomain)); } catch (_) {}
-  rerender();
+  rerender(); paintNotice();
   if (errors.length) toast("有改动没保存成功：" + errors.join("；"), { bad: true });
   else toast(`已保存 ${list.length} 项。${[...new Set(notes)].join("；")}`);
 }
@@ -392,6 +410,21 @@ async function qqCard() {
 }
 async function paintNotice() {
   const n = $("#notice");
+  // 第一优先：模型没配好，她说不了话（首次运行时一打开面板就看得到）
+  if (!FORM.loaded) { try { await loadForm(); } catch (_) {} }
+  const v = (d, k) => FORM.saved[fkey(d, k)];
+  const missing = [];
+  if (FORM.loaded) {
+    if (!v("config", "llm.base_url")) missing.push("网关地址");
+    if (!v("config", "llm.model")) missing.push("模型名");
+    const key = v("secrets", "llm.api_key");
+    if (key && key.set === false) missing.push("密钥");
+  }
+  if (missing.length) {
+    fill(n, h("b", { text: "还没配好模型，她现在说不了话。" }), `缺：${missing.join("、")}。`,
+      h("button", { type: "button", text: "去填", onclick: () => { location.hash = "#/model"; } }));
+    n.hidden = false; return;
+  }
   let q = null;
   try { q = await getJSON("/api/platforms/qq"); } catch (_) {}
   if (!q || !q.enabled || q.state !== "failed") { n.hidden = true; return; }

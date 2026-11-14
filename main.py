@@ -509,6 +509,8 @@ async def _serve() -> None:
     # 起服务前先喊一嗓子：终端沉默是老毛病（服务模式本就不打印），
     # 这行 + /logs 页让"它到底起来没"一目了然。
     port = _resolve_ws_port()
+    from core.version import version
+    logger.info("TaleAI %s 启动", version())
     logger.info("塔利已就绪 → 聊天 http://127.0.0.1:%d/ · 日志 http://127.0.0.1:%d/logs",
                 port, port)
     try:

@@ -20,7 +20,7 @@ import logging
 import re
 from pathlib import Path
 
-from openai import AsyncOpenAI
+from core.llm.client import make_client as _make_client
 
 from core.config.loader import Config
 from core.llm.context import ContextAssembler, SessionContext
@@ -139,13 +139,10 @@ class MemoryLLM:
         llm = cfg.get("llm", {})
         self.base_url: str = llm.get("base_url", "")
         self.model: str = llm.get("model", "")
-        if not self.base_url or not self.model:
-            raise ValueError(
-                "llm.base_url / llm.model 未配置。请在 data/config/config.json 里填写"
-                " 服务商网关地址（以 /v1 结尾）与模型名。"
-            )
         self.api_key: str = secrets.get("llm", {}).get("api_key", "")
-        self.client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+        # 没配也照常构造（同 ChatLLM）：client 为空时 extract 先重读一次配置，
+        # 还是没配就本轮跳过，等用户在面板里配好
+        self.client = _make_client(self.base_url, self.model, self.api_key)
         self.store = store
         self.context = ContextAssembler()
         self.system_prompt = (_PROMPTS_DIR / "memory.md").read_text(encoding="utf-8")
@@ -166,6 +163,14 @@ class MemoryLLM:
         Returns:
             本次写入的条目列表（含 id / content / importance / refs）。
         """
+        if self.client is None:
+            cfg, secrets = Config.load("config").get("llm", {}), Config.load("secrets").get("llm", {})
+            self.base_url, self.model = cfg.get("base_url", ""), cfg.get("model", "")
+            self.api_key = secrets.get("api_key", "")
+            self.client = _make_client(self.base_url, self.model, self.api_key)
+            if self.client is None:
+                logger.info("模型还没配置，本轮记忆提炼跳过")
+                return []
         events = [
             event
             for event in events
