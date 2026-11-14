@@ -61,7 +61,7 @@ if !errorlevel!==0 (
   echo       缺依赖，正在安装...
   where uv >nul 2>nul
   if !errorlevel!==0 (
-    uv pip install -e .
+    uv sync --frozen --no-dev --inexact
   ) else (
     "%PY%" -m pip install -e .
   )

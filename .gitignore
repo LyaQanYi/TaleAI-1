@@ -10,8 +10,7 @@ __pycache__/
 .venv/
 venv/
 
-# uv
-uv.lock
+# uv：uv.lock 进仓库（发版要能复现同一套依赖）
 
 # 运行时数据(本地生成,不提交)
 data/
