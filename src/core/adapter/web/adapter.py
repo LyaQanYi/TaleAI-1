@@ -358,7 +358,14 @@ class WebAdapter(AdapterBase):
             @app.get("/settings")
             async def settings() -> RedirectResponse:
                 """设置页入口，跟 / → index.html、/logs → logs.html 同构。"""
-                return RedirectResponse("/static/settings.html")
+                # 面板 P0 起，设置并入管理面板（模型 / 平台 / 设置三页）；旧页
+                # /static/settings.html 先保留一个版本，再删。
+                return RedirectResponse("/static/panel.html#/model")
+
+            @app.get("/panel")
+            async def panel() -> RedirectResponse:
+                """管理面板入口（人格 / 模型 / 平台 / 设置）。"""
+                return RedirectResponse("/static/panel.html")
 
             app.mount("/static", StaticFiles(directory=str(WEBUI_DIR)), name="static")
 

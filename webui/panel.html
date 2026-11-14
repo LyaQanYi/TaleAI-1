@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>TaleAI 管理面板</title>
+<script>
+// 首屏前定主题与侧栏开合，避免闪一下。主题默认跟随系统，手动选过就记住。
+try {
+  var t = localStorage.getItem("taleai.theme") || "auto";
+  document.documentElement.dataset.theme = t === "auto"
+    ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : t;
+} catch (e) {}
+</script>
+<link rel="stylesheet" href="/static/panel.css">
+</head>
+<body>
+<script>
+try {
+  var n = localStorage.getItem("taleai.nav");
+  if (n === "closed" || (n === null && innerWidth <= 1100)) document.body.classList.add("nav-closed");
+} catch (e) {}
+</script>
+
+<aside class="sidenav" id="sidenav" aria-label="面板导航">
+  <div class="brand">
+    <div><b id="botName">塔利</b><small>TaleAI 管理面板</small></div>
+    <button class="close" id="navClose" type="button" title="收起导航（Ctrl B）" aria-label="收起导航">×</button>
+  </div>
+  <nav id="nav">
+    <div class="gh">她</div>
+    <a href="#/persona" data-p="persona">人格<small>人设与聊天规则</small></a>
+    <div class="gh">接入</div>
+    <a href="#/model" data-p="model">模型<small>网关、模型、密钥</small></a>
+    <a href="#/platforms" data-p="platforms">平台<small>网页、QQ</small></a>
+    <div class="gh">系统</div>
+    <a href="#/settings" data-p="settings">设置<small>唤醒、记忆、外观</small></a>
+    <a href="/logs">日志<small>实时事件与日志</small></a>
+  </nav>
+  <div class="side-foot"><a href="/">去聊天 →</a></div>
+</aside>
+<div class="nav-scrim" id="navScrim"></div>
+
+<div class="main">
+  <header class="topbar">
+    <button class="navbtn" id="navBtn" type="button" aria-controls="sidenav" title="导航（Ctrl B）">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <line x1="2" y1="4" x2="14" y2="4"/><line x1="2" y1="8" x2="14" y2="8"/><line x1="2" y1="12" x2="14" y2="12"/>
+      </svg>
+      <span id="navBtnText">导航</span>
+    </button>
+    <span class="crumb" id="crumb"></span>
+    <span class="spacer"></span>
+    <a href="/">去聊天 →</a>
+  </header>
+  <div class="notice" id="notice" hidden></div>
+  <main class="page" id="page"></main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-hidden="true"></aside>
+<div class="dirty" id="dirty"></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="/static/panel.js"></script>
+</body>
+</html>

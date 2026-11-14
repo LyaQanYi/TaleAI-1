@@ -35,7 +35,8 @@ def test_settings_redirects_to_the_page():
     a = WebAdapter()
     r = TestClient(a.app, follow_redirects=False).get("/settings")
     assert r.status_code in (307, 308)
-    assert "settings.html" in r.headers["location"]
+    # 面板 P0 起，/settings 进管理面板的“模型”页（旧页仍在 /static/settings.html）
+    assert "panel.html" in r.headers["location"]
 
 
 def test_settings_page_served():
