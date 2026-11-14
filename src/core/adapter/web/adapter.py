@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from core.adapter.base import AdapterBase, Message, Reply
+from core.adapter.http_guard import LOCAL_HOSTS, TrustedHostMiddleware
 from core.event_bus import EventBus
 from core.image_store import MAX_IMAGES_PER_MESSAGE
 from core.log_stream import LogStream
@@ -54,6 +55,8 @@ WEB_SESSION_PREFIX = "web:"
 # 如测试/脚本）也放行——拦截的目标是"别的网页"，不是命令行。
 _ALLOWED_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
+#: Host 头白名单 LOCAL_HOSTS 定义在 http_guard（与 QQ 适配器共用），这里再导出，
+#: main 仍从本模块取、传给 WebAdapter(trusted_hosts=...)。
 
 
 class WebAdapter(AdapterBase):
@@ -72,6 +75,7 @@ class WebAdapter(AdapterBase):
         sessions_provider: Callable[[], list[dict]] | None = None,
         stream: LogStream | None = None,
         extra_routes: Callable[[FastAPI], None] | None = None,
+        trusted_hosts: frozenset[str] | None = None,
     ) -> None:
         super().__init__(bus=bus)
         self.host = host
@@ -93,6 +97,9 @@ class WebAdapter(AdapterBase):
         # 设置读写的 /api/* 等业务路由。用回调而不是把 Config 塞进来——同样是
         # §22 import 单向：适配器只管"接",不认识配置/存储。不注入＝不多挂任何路由。
         self._extra_routes = extra_routes
+        # Host 白名单（防 DNS rebinding）。None = 不查：裸适配器/测试的
+        # TestClient 用 Host "testserver"，行为保持不变；生产由 main 传 LOCAL_HOSTS。
+        self._trusted_hosts = trusted_hosts
         # session_id → 连接。同会话重连覆盖旧连接（后连的说了算）
         self._connections: dict[str, WebSocket] = {}
         self.app = self._build_app()
@@ -241,6 +248,8 @@ class WebAdapter(AdapterBase):
 
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="TaleAI WebUI")
+        if self._trusted_hosts is not None:
+            app.add_middleware(TrustedHostMiddleware, allowed=frozenset(self._trusted_hosts))
 
         @app.websocket("/ws")
         async def ws_endpoint(websocket: WebSocket) -> None:
@@ -379,4 +388,4 @@ class WebAdapter(AdapterBase):
         return list(self._connections)
 
 
-__all__ = ["WebAdapter", "DEFAULT_SESSION_ID"]
+__all__ = ["WebAdapter", "DEFAULT_SESSION_ID", "LOCAL_HOSTS"]

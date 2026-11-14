@@ -176,7 +176,8 @@ _PLATFORM_FIELDS = (
     ),
     FieldSpec(
         key="qq.access_token", label="QQ 访问令牌", type="text", default="",
-        help="留空=不校验（单机自用）；填了则握手须带同一 token，防止别人顶掉 SnowLuma",
+        help="建议填一个，并在 QQ 客户端（SnowLuma / NapCat）里填同样的值。留空 = 不校验："
+             "同一台电脑上的任何程序都能冒充 QQ 客户端连进来",
     ),
 )
 

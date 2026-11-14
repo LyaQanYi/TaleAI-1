@@ -781,3 +781,64 @@ async def test_send_echo_still_ignored_when_nobody_waits():
     await a._on_frame({"status": "ok", "retcode": 0, "data": {},
                        "echo": "send-qq:p1-abc123"})
     assert a._inbox.qsize() == 0
+
+
+# ---------- 来源检查（PR #25 评审：浏览器网页冒充 QQ 客户端） ----------
+
+
+def test_browser_origin_handshake_is_rejected():
+    """带 Origin 的握手一律拒：浏览器发起的 WS 一定带 Origin，原生 QQ 客户端不带。
+    token 为空（默认）时也要拦——否则任意网页都能连上来推假消息。"""
+    a = QQAdapter()
+    assert a.access_token == ""
+    with pytest.raises(Exception):
+        with TestClient(a.app).websocket_connect("/qq", headers={"Origin": "https://evil.example"}):
+            pass
+    assert a.connected() is False
+
+
+def test_browser_origin_rejected_even_with_valid_token():
+    a = QQAdapter()
+    a.access_token = "sekret"
+    with pytest.raises(Exception):
+        with TestClient(a.app).websocket_connect(
+            "/qq?access_token=sekret", headers={"Origin": "http://127.0.0.1:8321"}
+        ):
+            pass
+    assert a.connected() is False
+
+
+def test_trusted_hosts_rejects_rebinding_host():
+    """只听本机时（start() 里按监听地址设）只认本机名字的 Host。"""
+    from core.adapter.http_guard import LOCAL_HOSTS
+
+    a = QQAdapter()
+    a.trusted_hosts = LOCAL_HOSTS
+    with pytest.raises(Exception):
+        with TestClient(a.app).websocket_connect("/qq", headers={"Host": "evil.example:8866"}):
+            pass
+    assert a.connected() is False
+    with TestClient(a.app).websocket_connect("/qq", headers={"Host": "127.0.0.1:8866"}):
+        assert a.connected() is True
+
+
+def test_start_sets_trusted_hosts_by_listen_address(monkeypatch):
+    """监听 127.0.0.1 → 查 Host；监听 0.0.0.0（QQ 客户端在别的机器 / Docker 里）→ 不查。"""
+    from core.adapter.http_guard import LOCAL_HOSTS
+
+    class FakeServer:
+        def __init__(self, config):
+            self.started = False
+
+        async def serve(self):
+            return None
+
+    import uvicorn
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    for host, expect in (("127.0.0.1", LOCAL_HOSTS), ("0.0.0.0", None)):
+        monkeypatch.setattr(qq_adapter_mod.QQAdapter, "_load_access_token", staticmethod(lambda: ""))
+        a = QQAdapter()
+        from core.config import loader
+        monkeypatch.setattr(loader.Config, "load", classmethod(lambda cls, d: type("C", (), {"get": lambda self, k, dflt=None: {"host": host, "port": 8866}})()))
+        asyncio.run(a.start())
+        assert a.trusted_hosts == expect

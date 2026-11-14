@@ -18,7 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from core.adapter.base import Reply
-from core.adapter.web.adapter import DEFAULT_SESSION_ID, WebAdapter
+from core.adapter.web.adapter import DEFAULT_SESSION_ID, LOCAL_HOSTS, WebAdapter
 from core.event_bus import EventBus
 
 
@@ -383,3 +383,50 @@ def test_ws_endpoint_works_regardless_of_webui_dir():
     with TestClient(a.app).websocket_connect("/ws?session_id=x") as ws:
         ws.send_json({"content": "still works"})
         assert _drain_inbox(a).content == "still works"
+
+
+# ---------- Host 白名单（防 DNS rebinding，面板 04 §6） ----------
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1:8321", "localhost", "LOCALHOST:80", "[::1]:8000"])
+def test_trusted_host_allows_local_names(host):
+    """本机的几种写法（带端口、大写、IPv6 方括号）都放行。"""
+    a = WebAdapter(sessions_provider=lambda: [], trusted_hosts=LOCAL_HOSTS)
+    r = TestClient(a.app).get("/api/sessions", headers={"Host": host})
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("host", ["evil.example", "evil.example:8321", "127.0.0.1.evil.example", "[::2]"])
+def test_trusted_host_rejects_rebinding_names(host):
+    """DNS rebinding：攻击域名解析到 127.0.0.1 后 Host 仍是攻击域名 → 400。"""
+    a = WebAdapter(sessions_provider=lambda: [], trusted_hosts=LOCAL_HOSTS)
+    r = TestClient(a.app).get("/api/sessions", headers={"Host": host})
+    assert r.status_code == 400
+
+
+def test_trusted_host_rejects_ws_handshake():
+    """WS 握手同样查 Host：不在白名单 → 握手失败，不登记连接。"""
+    from starlette.websockets import WebSocketDisconnect
+
+    a = WebAdapter(trusted_hosts=LOCAL_HOSTS)
+    with pytest.raises(WebSocketDisconnect):
+        with TestClient(a.app).websocket_connect(
+            "/ws?session_id=web:local", headers={"Host": "evil.example"}
+        ):
+            pass
+    assert a.connected_sessions() == []
+
+
+def test_trusted_host_allows_ws_from_localhost():
+    a = WebAdapter(trusted_hosts=LOCAL_HOSTS)
+    with TestClient(a.app).websocket_connect(
+        "/ws?session_id=web:local", headers={"Host": "127.0.0.1:8321"}
+    ) as ws:
+        ws.send_json({"content": "hi"})
+        assert _drain_inbox(a).content == "hi"
+
+
+def test_no_trusted_hosts_means_no_check():
+    """不传 trusted_hosts = 不查（裸适配器 / 旧测试的 testserver 行为不变）。"""
+    a = WebAdapter(sessions_provider=lambda: [])
+    assert TestClient(a.app).get("/api/sessions").status_code == 200

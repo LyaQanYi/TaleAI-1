@@ -203,6 +203,22 @@ def ensure_user_persona(path: Path | str | None = None) -> bool:
     return _seed_if_missing(target, _USER_PERSONA_SKELETON)
 
 
+def pick_persona_source(user_path: Path, builtin_path: Path) -> Path:
+    """人格正文用哪份：用户文件有正经内容就用用户的，否则用内置默认。
+
+    Persona 每回合现拼时用它，面板标"当前生效的是哪份"也用它——同一个判据，
+    不各写一份。读不到（OSError）按没写处理；不是 UTF-8 照常抛（同现拼）。
+    """
+    if user_path.is_file():
+        try:
+            text = user_path.read_text(encoding="utf-8")
+        except OSError:
+            return builtin_path
+        if _has_real_content(text):
+            return user_path
+    return builtin_path
+
+
 def ensure_user_rules(rules_dir: Path | str | None = None) -> list[Path]:
     """三个规则文件不存在就各落一份空白骨架。返回本次新建的路径列表。
 
@@ -262,14 +278,7 @@ class Persona:
         （启动时落的空白骨架），但没写东西时应当仍走内置默认。
         每次现拼时判断一次（热重载）：写完内容下一句对话即生效。
         """
-        if self.user_persona_path.is_file():
-            try:
-                text = self.user_persona_path.read_text(encoding="utf-8")
-            except OSError:
-                return self.builtin_persona_path
-            if _has_real_content(text):
-                return self.user_persona_path
-        return self.builtin_persona_path
+        return pick_persona_source(self.user_persona_path, self.builtin_persona_path)
 
     def _scene_rule_path(self, session_type: str) -> Path | None:
         """会话类型 → 场景规则文件；没有对应场景（含 ""/未知类型）返回 None。
@@ -282,7 +291,7 @@ class Persona:
             "group": self.group_rules_path,
         }.get(session_type)
 
-    def _rule_texts(self, session_type: str) -> list[str]:
+    def _rule_parts(self, session_type: str) -> list[tuple[Path, str]]:
         """按会话类型取要注入的规则文本：全局规则 + 场景规则（可能为空表）。
 
         三态语义（规则没有内置默认轨，与 persona 的"留空即默认"不同）：
@@ -296,14 +305,31 @@ class Persona:
         机器上写的静态配置，与 persona 同信任域。若未来开放远程/多人编辑，
         信任模型变了，此处需重评。
         """
-        out: list[str] = []
+        out: list[tuple[Path, str]] = []
         for path in (self.global_rules_path, self._scene_rule_path(session_type)):
             if path is None or not path.is_file():
                 continue
             text = path.read_text(encoding="utf-8")
             if _has_real_content(text):
-                out.append(text)
+                out.append((path, text))
         return out
+
+    def _rule_texts(self, session_type: str) -> list[str]:
+        return [text for _path, text in self._rule_parts(session_type)]
+
+    def system_parts(self, session_type: str = "") -> list[tuple[str, Path, str]]:
+        """按注入顺序列出 system 的每一段：(块名, 来源文件, 文本)。
+
+        `_build` 与面板的拼接预览共用这一份——预览看到的就是她读到的，
+        不会因为两处各拼一遍而悄悄漂移。读不到就抛（同 `_build`）。
+        """
+        persona_path = self._persona_source()
+        return [
+            ("base", self.base_path, self.base_path.read_text(encoding="utf-8")),
+            ("chat", self.chat_path, self.chat_path.read_text(encoding="utf-8")),
+            ("persona", persona_path, persona_path.read_text(encoding="utf-8")),
+            *((f"rules.{path.stem}", path, text) for path, text in self._rule_parts(session_type)),
+        ]
 
     def _build(self, session_type: str = "") -> str:
         """现拼一次：读框架/人设/规则文件 + 拼接。读不到就抛（由调用方兜底）。
@@ -317,13 +343,7 @@ class Persona:
           否则私聊/群聊共享的那段长前缀被截短；
         - 不许对文件文本做 strip/规范化——任何"顺手清理"都会改变字节。
         """
-        parts = [
-            self.base_path.read_text(encoding="utf-8"),
-            self.chat_path.read_text(encoding="utf-8"),
-            self._persona_source().read_text(encoding="utf-8"),
-            *self._rule_texts(session_type),
-        ]
-        return "\n\n".join(parts)
+        return "\n\n".join(text for _name, _path, text in self.system_parts(session_type))
 
     def build_system_prompt(self, session_type: str = "") -> str:
         """返回 system 提示词——**每次现拼**（热重载，PR3），按会话类型选规则（v4.14）。
