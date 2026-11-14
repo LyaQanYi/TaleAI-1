@@ -19,6 +19,7 @@
 
 <br>
 
+- [快速开始](#快速开始)
 - [理念](#理念)
   - [七条设计原则](#七条设计原则) &nbsp;·&nbsp; [三个不变量](#三个不变量) &nbsp;·&nbsp; [六个框架取舍](#六个框架取舍)
 - [架构](#架构)
@@ -27,6 +28,58 @@
 - [代码结构](#代码结构与架构的对应)
 
 </details>
+
+---
+
+## 快速开始
+
+### 要什么
+
+- Python 3.11 及以上
+- [uv](https://docs.astral.sh/uv/)（推荐；没有也行，脚本会退回 `python -m venv`）
+- 一个 OpenAI 兼容的模型网关：地址（以 `/v1` 结尾）、模型名、密钥
+
+### 起起来
+
+Windows：双击 `启动.bat`。它会建好 `.venv`、按 `uv.lock` 装依赖、检查端口，然后启动。
+
+其他系统：
+
+```bash
+uv sync --frozen --no-dev
+uv run python main.py
+```
+
+默认端口 8321（`启动.bat`）或 8000（直接运行），用环境变量 `TALEAI_PORT` 改。
+
+### 第一次打开
+
+1. 浏览器打开 `http://127.0.0.1:<端口>/panel`
+2. **模型**：填网关地址、模型名、密钥，保存，点“测试已保存的配置”确认通了。没配之前也能启动，聊天会提示你先来这里填
+3. **人格**：在编辑器里写下她是谁（`persona.md`）和聊天规则，Ctrl S 保存，下一句话就按新的来
+4. 回到 `http://127.0.0.1:<端口>/` 开始聊天
+
+### 接 QQ（可选）
+
+在面板 **平台** 页打开 QQ。QQ 客户端（SnowLuma / NapCat 等 OneBot 实现）里把反向 WebSocket 填成 `ws://127.0.0.1:8866/qq`。建议在面板里填一个访问令牌，并在客户端里填同样的值。
+
+### 数据与备份
+
+运行时数据都在 `data/`（不进仓库），升级前备份这几样：
+
+| 路径 | 内容 |
+|---|---|
+| `data/config/` | 配置、人设、聊天规则、密钥（`secrets.json`） |
+| `data/sessions.db` | 会话与消息 |
+| `data/memory/` | 原始事件与提炼出的记忆 |
+
+升级：覆盖代码（`git pull` 或换新的发布包），`data/` 原样保留，再按上面的方式启动。
+
+### 安全
+
+TaleAI 只监听本机（127.0.0.1），面板没有登录。不要把端口转发或暴露到公网：面板能看到她的人格、配置，以后还会有记忆和全部会话。
+
+<p align="right">(<a href="#readme-top">回到顶部</a>)</p>
 
 ---
 
@@ -218,7 +271,7 @@ flowchart LR
 main.py                     入口：前台控制流、CLI、装配
 src/core/
 ├── adapter/                接入层：统一消息模型 + 各平台适配器
-│   ├── websocket/          └─ WebUI 接入
+│   ├── web/                └─ WebUI 接入
 │   └── qq/                 └─ QQ 接入
 ├── llm/                    前台主链路
 │   ├── prompts/            └─ 人格与提示词静态块
@@ -228,10 +281,10 @@ src/core/
 ├── executor.py             工具执行
 ├── xml_parser.py           人格输出解析
 ├── config/                 配置系统（5 域 JSON）
-├── bus/                    事件总线（旁路通知，不驱动控制流）
+├── event_bus.py            事件总线（旁路通知，不驱动控制流）
 └── log.py                  日志
 tests/                      测试，与 src 逐模块对应
-webui/                      WebUI 静态页
+webui/                      WebUI 静态页（聊天、管理面板；vendor/ 下是本地化的第三方库）
 data/                       运行时数据（不进仓库）
 ```
 
@@ -245,3 +298,9 @@ data/                       运行时数据（不进仓库）
 <div align="center">
 <sub>架构设计说明书与实施计划属本地工作文档，不随仓库分发；正文中的 <code>§编号</code> 指向该说明书，仅作内部追溯。</sub>
 </div>
+
+---
+
+## 许可证
+
+[GNU Affero General Public License v3.0](LICENSE)。第三方组件的许可见各自目录（如 `webui/vendor/monaco/LICENSE.txt`）。
