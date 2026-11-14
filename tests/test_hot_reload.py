@@ -311,3 +311,40 @@ async def test_serve_forever_reads_wake_policy_per_message(tmp_path, monkeypatch
         await task
     store.close()
     bus.reset()
+
+
+# ---------- 没配模型也能启动（发版前：面板就是用来配它的） ----------
+
+
+async def test_unconfigured_bot_replies_without_calling_gateway():
+    """client 为空（没配网关 / 模型名）：这一轮直接回一句"去面板配模型"，不打网关。"""
+    from core.llm.chat_llm import NOT_CONFIGURED_TEXT
+
+    bot = make_bot()
+    bot.client = None
+    bot.base_url, bot.model = "", ""
+    bot.settings_reader = lambda: snap(base_url="", model="")
+    reply = await bot.run_loop("在吗", [], "web:x")
+    assert reply.stop_reason == "not_configured"
+    assert reply.messages == [NOT_CONFIGURED_TEXT]
+    assert "/panel" in NOT_CONFIGURED_TEXT
+
+
+async def test_configuring_in_panel_takes_effect_next_turn():
+    """面板里填好之后，下一轮热重载就把客户端建上，不用重启。"""
+    bot = make_bot()
+    bot.client = None
+    bot.base_url, bot.model, bot.api_key = "", "", ""
+    bot.settings_reader = lambda: snap(base_url="https://new.example/v1", model="new-model", key="")
+    await bot._refresh_config()
+    assert bot.client is not None and bot.model == "new-model"
+    await bot.client.close()
+
+
+def test_make_client_none_when_unconfigured_and_placeholder_key():
+    from core.llm.client import make_client
+
+    assert make_client("", "m", "k") is None
+    assert make_client("https://x.example/v1", "", "k") is None
+    c = make_client("https://x.example/v1", "m", "")
+    assert c is not None  # 空密钥用占位值，本机网关（Ollama 之类）照样能用

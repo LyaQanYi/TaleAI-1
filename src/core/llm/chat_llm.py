@@ -19,7 +19,9 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI  # noqa: F401  测试里 monkeypatch 用
+
+from core.llm.client import make_client as _make_client
 
 from core.adapter.base import Reply
 from core.event_bus import EventBus
@@ -55,6 +57,10 @@ def _escape_msg_tags(text: str) -> str:
     正是 PR #10 复现的格式漂移。转义保证补回的始终是**无歧义**的标签结构。
     """
     return _MSG_TAG.sub(lambda m: "&lt;" + m.group(0)[1:], text)
+
+
+#: 模型没配好时，她回的那一句（不打到网关上）
+NOT_CONFIGURED_TEXT = "我还没接上模型，现在说不了话。请打开管理面板（/panel）的“模型”页，填好网关地址、模型名和密钥。"
 
 
 def _load_fallback_text() -> str:
@@ -209,11 +215,11 @@ class ChatLLM:
         #   见 _refresh_config——启动即错要当场暴露，运行中变错不该炸回合。）
         self.base_url: str = llm.get("base_url", "")
         self.model: str = llm.get("model", "")
+        # 没配也照常启动（面板就是用来配它的——起不来就进不了面板）：
+        # client 留空，每轮开头的热重载发现配好了就建上；没配好的那一轮直接
+        # 回一句"去面板配模型"，不打到网关上。
         if not self.base_url or not self.model:
-            raise ValueError(
-                "llm.base_url / llm.model 未配置。请在 data/config/config.json 里填写"
-                " 服务商网关地址（以 /v1 结尾）与模型名。"
-            )
+            logger.warning("模型还没配置（llm.base_url / llm.model 为空）：先打开 /panel 的“模型”页填好")
         self.api_key: str = secrets.get("llm", {}).get("api_key", "")
         # 热重载的读配置入口（PR3）：读 config + secrets 两个域，返回整快照。
         # 赋成实例属性 = 遮盖类属性的 None，真实例每轮 run_loop 都会过一遍它。
@@ -235,7 +241,7 @@ class ChatLLM:
         # 动态块总预算（§19-17）：超限按 order 优先级截断，system 不参与。
         self.context_token_budget: int = int(llm.get("context_token_budget", 3000))
         # 异步客户端（openai 3.x 是异步优先）
-        self.client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
+        self.client = _make_client(self.base_url, self.model, self.api_key)
         # 上下文装配（M0-03 欠的那半）：动态块由它准备，本类不自己拼（§18.5 硬规则 6）
         # memory_retriever（M1-07）：注入相关记忆；unread_inbox（M1-08）：
         # 注入"我不在时发生的事"。None = 不注入（CLI/测试裸装配）。
@@ -301,11 +307,11 @@ class ChatLLM:
             )
             return
 
-        if (base_url, api_key) != (self.base_url, self.api_key):
+        if self.client is None or (base_url, api_key) != (self.base_url, self.api_key):
             old = self.client
             self.base_url = base_url
             self.api_key = api_key
-            self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+            self.client = _make_client(base_url, model, api_key)
             try:
                 await old.close()
             except Exception:
@@ -522,6 +528,9 @@ class ChatLLM:
         # 配置热重载（PR3）：每轮开头把改过的配置搬进来（model/密钥/窗口）。
         # 失败只会记 warning 并沿用上次成功的配置——热重载失败不该让对话失败。
         await self._refresh_config()
+        if self.client is None:
+            return Reply(session_id=session_id, messages=[NOT_CONFIGURED_TEXT],
+                         tool_calls_made=[], stop_reason="not_configured")
         messages = self.assemble_messages(user_question, history, session=session,
                                           images=images, quoted=quoted,
                                           quoted_images=quoted_images)

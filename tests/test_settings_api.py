@@ -207,3 +207,51 @@ def test_save_allows_json_no_origin(client):
     r = client.post("/api/settings/values",
                     json={"domain": "config", "values": {"bot.name": "塔利"}})
     assert r.status_code == 200
+
+
+# ---------- 测试连接 / 关于（发版前补） ----------
+
+
+def _save(client, domain, values):
+    return client.post("/api/settings/values", json={"domain": domain, "values": values})
+
+
+def test_test_llm_requires_saved_config(client):
+    r = client.post("/api/settings/test-llm", json={})
+    assert r.status_code == 200 and r.json()["ok"] is False
+    assert "还没填" in r.json()["error"]
+
+
+def test_test_llm_ignores_url_in_body_and_uses_saved(client, monkeypatch):
+    """不收前端传的地址（防 SSRF）：只测已保存的那份。"""
+    seen = {}
+
+    def fake_probe(base_url, key, timeout=8.0):
+        seen["url"], seen["key"] = base_url, key
+        return {"ok": True, "ms": 12, "status": 200}
+
+    monkeypatch.setattr(cfg_api, "_probe_models", fake_probe)
+    _save(client, "config", {"llm.base_url": "https://gw.example/v1/", "llm.model": "m1"})
+    _save(client, "secrets", {"llm.api_key": "sk-saved"})
+    r = client.post("/api/settings/test-llm", json={"base_url": "http://169.254.169.254/latest"})
+    assert r.json() == {"ok": True, "ms": 12, "status": 200, "model": "m1"}
+    assert seen == {"url": "https://gw.example/v1", "key": "sk-saved"}
+
+
+def test_test_llm_rejects_non_http_scheme(client):
+    _save(client, "config", {"llm.base_url": "file:///etc/passwd", "llm.model": "m1"})
+    r = client.post("/api/settings/test-llm", json={})
+    assert r.json()["ok"] is False and "http" in r.json()["error"]
+
+
+def test_test_llm_is_csrf_guarded(client):
+    r = client.post("/api/settings/test-llm", json={}, headers={"Origin": "https://evil.example"})
+    assert r.status_code == 403
+
+
+def test_about_reports_pyproject_version(client):
+    from core.version import version
+
+    r = client.get("/api/about")
+    assert r.json() == {"ok": True, "version": version()}
+    assert version() != "unknown"

@@ -19,6 +19,10 @@
 - 密钥留空提交 = 保持原值（不能让用户改别的字段时误清密钥）
 """
 
+import asyncio
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlparse
@@ -220,7 +224,55 @@ def build_settings_routes(
             return JSONResponse({"ok": True, "domain": domain, "changed": changed,
                                  "note": _APPLY_NOTES.get(domain, "改动已写入配置")})
 
+        @app.post("/api/settings/test-llm")
+        async def test_llm(request: Request) -> JSONResponse:
+            """测**已保存**的模型网关通不通：GET {base_url}/models。
+
+            不收前端传的地址——否则这个口子就成了“用你的机器去探测任意 URL”
+            的跳板（SSRF）。改了地址要先保存再测。
+            """
+            _body, err = await _guard_post_json(request)
+            if err is not None:
+                return err
+            llm = _load("config").get("llm", {}) or {}
+            base_url = str(llm.get("base_url") or "").rstrip("/")
+            model = str(llm.get("model") or "")
+            key = str((_load("secrets").get("llm", {}) or {}).get("api_key") or "")
+            if not base_url or not model:
+                return JSONResponse({"ok": False, "error": "网关地址或模型名还没填（先保存再测）"})
+            if urlparse(base_url).scheme not in ("http", "https"):
+                return JSONResponse({"ok": False, "error": "网关地址要以 http:// 或 https:// 开头"})
+            result = await asyncio.to_thread(_probe_models, base_url, key)
+            return JSONResponse({**result, "model": model})
+
+        @app.get("/api/about")
+        async def about() -> JSONResponse:
+            from core.version import version
+            return JSONResponse({"ok": True, "version": version()})
+
     return register
+
+
+def _probe_models(base_url: str, key: str, timeout: float = 8.0) -> dict:
+    """GET {base_url}/models，只看通不通、用时多少；不解析、不回传响应体。"""
+    req = urllib.request.Request(base_url + "/models", headers={
+        "Authorization": f"Bearer {key or 'not-set'}", "Accept": "application/json",
+    })
+    started = time.perf_counter()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            status = resp.status
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        reason = getattr(exc, "reason", exc)
+        return {"ok": False, "error": f"连不上：{reason}"}
+    ms = round((time.perf_counter() - started) * 1000)
+    if status in (401, 403):
+        return {"ok": False, "ms": ms, "status": status, "error": "网关拒绝了密钥（401/403），检查一下密钥"}
+    if status >= 400:
+        return {"ok": False, "ms": ms, "status": status, "error": f"网关回了 HTTP {status}，检查地址是否以 /v1 结尾"}
+    return {"ok": True, "ms": ms, "status": status}
 
 
 def build_platforms_routes(
