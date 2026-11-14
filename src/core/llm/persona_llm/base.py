@@ -203,6 +203,22 @@ def ensure_user_persona(path: Path | str | None = None) -> bool:
     return _seed_if_missing(target, _USER_PERSONA_SKELETON)
 
 
+def pick_persona_source(user_path: Path, builtin_path: Path) -> Path:
+    """人格正文用哪份：用户文件有正经内容就用用户的，否则用内置默认。
+
+    Persona 每回合现拼时用它，面板标"当前生效的是哪份"也用它——同一个判据，
+    不各写一份。读不到（OSError）按没写处理；不是 UTF-8 照常抛（同现拼）。
+    """
+    if user_path.is_file():
+        try:
+            text = user_path.read_text(encoding="utf-8")
+        except OSError:
+            return builtin_path
+        if _has_real_content(text):
+            return user_path
+    return builtin_path
+
+
 def ensure_user_rules(rules_dir: Path | str | None = None) -> list[Path]:
     """三个规则文件不存在就各落一份空白骨架。返回本次新建的路径列表。
 
@@ -262,14 +278,7 @@ class Persona:
         （启动时落的空白骨架），但没写东西时应当仍走内置默认。
         每次现拼时判断一次（热重载）：写完内容下一句对话即生效。
         """
-        if self.user_persona_path.is_file():
-            try:
-                text = self.user_persona_path.read_text(encoding="utf-8")
-            except OSError:
-                return self.builtin_persona_path
-            if _has_real_content(text):
-                return self.user_persona_path
-        return self.builtin_persona_path
+        return pick_persona_source(self.user_persona_path, self.builtin_persona_path)
 
     def _scene_rule_path(self, session_type: str) -> Path | None:
         """会话类型 → 场景规则文件；没有对应场景（含 ""/未知类型）返回 None。

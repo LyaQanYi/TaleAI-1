@@ -11,6 +11,8 @@ import copy
 import json
 import os
 import tempfile
+
+from core.fsutil import replace_with_retry
 from pathlib import Path
 
 from src.core.config.default import DEFAULT_CONFIG
@@ -145,7 +147,7 @@ class Config:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, self.path)  # 原子替换
+            replace_with_retry(tmp_path, self.path)  # 原子替换（Windows 共享冲突会退避重试）
         except Exception:
             # 出错时清理临时文件
             if os.path.exists(tmp_path):

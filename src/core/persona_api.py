@@ -33,6 +33,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from core.config.api import _bad, _guard_post_json
+from core.fsutil import replace_with_retry
 from core.llm.persona_llm.base import (
     BUILTIN_PERSONA_PATH,
     PROMPTS_DIR,
@@ -40,6 +41,7 @@ from core.llm.persona_llm.base import (
     USER_PERSONA_PATH,
     Persona,
     _has_real_content,
+    pick_persona_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,13 +93,13 @@ def _file_payload(path: Path, raw: bytes | None) -> dict:
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
-    """temp + os.replace：写到一半崩溃也不会留下半个文件（同 Config.save）。"""
+    """temp + 替换：写到一半崩溃也不会留下半个文件（同 Config.save；Windows 共享冲突会退避重试）。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        os.replace(tmp, path)
+        replace_with_retry(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)
@@ -124,13 +126,24 @@ def build_persona_routes(
         "group": rules / "group.md",
     }
 
+    def _persona() -> Persona:
+        return Persona(persona_path=persona_file, rules_dir=rules)
+
+    def _persona_source() -> str | None:
+        # 与对话现拼用同一个判据（pick_persona_source），不在这里另抄一份。
+        # 文件不是 UTF-8 时对话那边也拼不出来（沿用上次好的），这里如实给 null
+        try:
+            return "user" if pick_persona_source(persona_file, BUILTIN_PERSONA_PATH) == persona_file else "builtin"
+        except UnicodeDecodeError:
+            return None
+
     def _read_all() -> dict:
         out = {}
         for name, path in files.items():
             payload = _file_payload(path, _read_raw(path))
             if name == "persona":
                 # 用户那份只剩骨架时，她实际用的是内置人设——编辑器要说清楚
-                payload["source"] = "user" if _has_real_content(payload["content"]) else "builtin"
+                payload["source"] = _persona_source()
             else:
                 # 规则没有内置默认轨：判空 = 不注入
                 payload["injected"] = _has_real_content(payload["content"])
@@ -163,19 +176,22 @@ def build_persona_routes(
 
     def _preview(kind: str) -> dict:
         # 与对话走同一个 Persona.system_parts——预览就是她真正读到的
-        persona = Persona(persona_path=persona_file, rules_dir=rules)
+        persona = _persona()
         edit_names = {path: name for name, path in files.items()}
-        blocks = [
-            {
+        blocks = []
+        for block, path, text in persona.system_parts(kind):
+            item = {
                 "name": block,
                 "file": path.name,
-                # 落在四个用户文件之一 → 可编辑，给出它在 /api/persona 里的名字；框架/内置为 null
-                "edit_as": edit_names.get(path),
+                # 去 /api/persona 里改哪一份。人设块固定指向用户那份 persona：
+                # 生效的是内置人设时，想换掉它也正是去写用户的 persona.md。框架为 null
+                "edit_as": "persona" if block == "persona" else edit_names.get(path),
                 "content": text,
                 "tokens": len(text),  # 与 context._estimate_tokens 同口径：1 字 ≈ 1 token
             }
-            for block, path, text in persona.system_parts(kind)
-        ]
+            if block == "persona":
+                item["source"] = "user" if path == persona_file else "builtin"
+            blocks.append(item)
         text = "\n\n".join(b["content"] for b in blocks)
         return {"ok": True, "kind": kind, "blocks": blocks, "text": text, "tokens": len(text)}
 

@@ -89,6 +89,7 @@ def test_non_utf8_file_is_not_served_as_garbage(client, paths):
     persona.write_bytes(b"\xff\xfe bad")
     f = _files(client)["persona"]
     assert f["content"] == "" and "UTF-8" in f["error"]
+    assert f["source"] is None  # 对话那边也拼不出这份，来源如实给 null
 
 
 # ---------- 写 ----------
@@ -235,12 +236,16 @@ def test_preview_marks_editable_blocks(client, paths):
     (rules / "private.md").write_text("私聊规则。\n", encoding="utf-8")
     blocks = {b["name"]: b for b in client.get("/api/persona/preview?kind=private").json()["blocks"]}
     assert blocks["base"]["edit_as"] is None
-    # 人设只剩骨架 → 用的是内置那份，不可在这里直接改
-    assert blocks["persona"]["edit_as"] is None
+    # 人设只剩骨架 → 生效的是内置那份；但要换掉它，正是去写用户的 persona，
+    # 所以 edit_as 仍指向 persona，另用 source 说明当前生效的是哪份
+    assert blocks["persona"]["edit_as"] == "persona"
+    assert blocks["persona"]["source"] == "builtin"
     assert blocks["rules.private"]["edit_as"] == "private"
+    assert "source" not in blocks["rules.private"]
     persona.write_text("# 林星遥\n\n正文\n", encoding="utf-8")
     blocks = {b["name"]: b for b in client.get("/api/persona/preview?kind=private").json()["blocks"]}
     assert blocks["persona"]["edit_as"] == "persona"
+    assert blocks["persona"]["source"] == "user"
 
 
 def test_preview_skips_empty_rules(client):
@@ -251,3 +256,35 @@ def test_preview_skips_empty_rules(client):
 
 def test_preview_rejects_unknown_kind(client):
     assert client.get("/api/persona/preview?kind=admin").status_code == 400
+
+
+def test_read_source_agrees_with_persona(client, paths):
+    """GET 标的来源与 Persona 实际选的一致（同一个判据，不另抄一份）。"""
+    persona, rules = paths
+    assert client.get("/api/persona").json()["files"]["persona"]["source"] == "builtin"
+    persona.write_text("# 林星遥\n\n正文\n", encoding="utf-8")
+    assert Persona(persona_path=persona, rules_dir=rules)._persona_source() == persona
+    assert client.get("/api/persona").json()["files"]["persona"]["source"] == "user"
+
+
+def test_save_retries_windows_sharing_violation(client, paths, monkeypatch):
+    """Windows 上目标文件被别的进程短暂占着时，os.replace 抛 PermissionError——退避重试后写成。"""
+    import core.fsutil as fsutil
+
+    persona, _ = paths
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] <= 2:
+            raise PermissionError("[WinError 5] 拒绝访问")
+        real_replace(src, dst)
+
+    monkeypatch.setattr(fsutil.os, "replace", flaky)
+    monkeypatch.setattr(fsutil.time, "sleep", lambda _s: None)
+    version = client.get("/api/persona").json()["files"]["persona"]["version"]
+    r = client.post("/api/persona/persona", json={"content": "新的人设\n", "base_version": version})
+    assert r.status_code == 200
+    assert calls["n"] == 3
+    assert persona.read_text(encoding="utf-8") == "新的人设\n"
