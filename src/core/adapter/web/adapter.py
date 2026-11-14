@@ -28,13 +28,11 @@ from typing import Callable
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import (
-    JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse,
-)
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.datastructures import Headers
 
 from core.adapter.base import AdapterBase, Message, Reply
+from core.adapter.http_guard import LOCAL_HOSTS, TrustedHostMiddleware
 from core.event_bus import EventBus
 from core.image_store import MAX_IMAGES_PER_MESSAGE
 from core.log_stream import LogStream
@@ -57,52 +55,8 @@ WEB_SESSION_PREFIX = "web:"
 # 如测试/脚本）也放行——拦截的目标是"别的网页"，不是命令行。
 _ALLOWED_ORIGIN_HOSTS = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
-#: Host 头白名单（防 DNS rebinding）。只比 hostname（urlparse 后已去端口、
-#: 去 IPv6 方括号、转小写）。由 main 显式传给 WebAdapter(trusted_hosts=...)。
-LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
-def _host_allowed(host_header: str, allowed: frozenset[str]) -> bool:
-    """Host 头的 hostname 是否在白名单里。缺 Host / 解析失败一律拒。"""
-    if not host_header:
-        return False
-    try:
-        return urlparse(f"//{host_header}").hostname in allowed
-    except ValueError:
-        return False
-
-
-class _TrustedHostMiddleware:
-    """只放行 Host 头在白名单里的 HTTP / WebSocket 请求。
-
-    为什么要它：Origin==Host 同源检查挡不住 DNS rebinding——攻击页把自己的
-    域名解析到 127.0.0.1 后，Origin 与 Host 是同一个攻击域名，同源照样通过；
-    GET 接口（记忆原文、配置值）更是没有任何防线。Host 白名单在最外层把
-    "不是用本机名字访问的请求"全挡掉。
-
-    不用 Starlette 自带的 TrustedHostMiddleware：它用 `split(":")` 取主机名，
-    `[::1]:8000` 会被切成 `[`；这里与 `_origin_allowed` 同口径走 urlparse。
-    """
-
-    def __init__(self, app, allowed: frozenset[str]) -> None:
-        self.app = app
-        self.allowed = allowed
-
-    async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] in ("http", "websocket"):
-            host = Headers(scope=scope).get("host", "")
-            if not _host_allowed(host, self.allowed):
-                logger.warning("拒绝 Host 不在白名单的请求：%r %s", host, scope.get("path"))
-                if scope["type"] == "websocket":
-                    # 握手前发 close = 服务器回 403（ASGI 规范）
-                    await send({"type": "websocket.close", "code": 1008})
-                else:
-                    await PlainTextResponse("Invalid host header", status_code=400)(
-                        scope, receive, send
-                    )
-                return
-        await self.app(scope, receive, send)
-
+#: Host 头白名单 LOCAL_HOSTS 定义在 http_guard（与 QQ 适配器共用），这里再导出，
+#: main 仍从本模块取、传给 WebAdapter(trusted_hosts=...)。
 
 
 class WebAdapter(AdapterBase):
@@ -295,7 +249,7 @@ class WebAdapter(AdapterBase):
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="TaleAI WebUI")
         if self._trusted_hosts is not None:
-            app.add_middleware(_TrustedHostMiddleware, allowed=frozenset(self._trusted_hosts))
+            app.add_middleware(TrustedHostMiddleware, allowed=frozenset(self._trusted_hosts))
 
         @app.websocket("/ws")
         async def ws_endpoint(websocket: WebSocket) -> None:
@@ -434,4 +388,4 @@ class WebAdapter(AdapterBase):
         return list(self._connections)
 
 
-__all__ = ["WebAdapter", "DEFAULT_SESSION_ID"]
+__all__ = ["WebAdapter", "DEFAULT_SESSION_ID", "LOCAL_HOSTS"]

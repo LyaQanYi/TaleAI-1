@@ -28,6 +28,7 @@ from collections import OrderedDict
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from core.adapter.base import AdapterBase, Message, Reply
+from core.adapter.http_guard import LOCAL_HOSTS, RejectLog, host_allowed, is_loopback
 from core.adapter.pacing import typing_delay
 from core.adapter.qq.protocol import (
     build_send_action,
@@ -81,6 +82,13 @@ class QQAdapter(AdapterBase):
         # 握手 token（OneBot access_token 约定）。空 = 不校验（单机自用默认）。
         # 构造时留空，start() 里现读——token 改动随下次"开闸"生效，不用重启进程。
         self.access_token: str = ""
+        # Host 白名单（防 DNS rebinding）。None = 不查：构造时 / 测试的 TestClient
+        # （Host 是 "testserver"）保持原行为；start() 里按监听地址定——只听本机
+        # 时只认本机名字，听局域网（NapCat 在别的机器 / Docker 里）就不查 Host。
+        self.trusted_hosts: frozenset[str] | None = None
+        # 被拒握手的限流日志：同一来源每分钟只记一条（防刷屏）
+        self._reject_origin = RejectLog("带 Origin 的 QQ 握手（浏览器发起，不是 QQ 客户端）")
+        self._reject_host = RejectLog("Host 不在白名单的 QQ 握手")
         # 已见过的 message_id（FIFO 淘汰）
         self._seen_ids: OrderedDict[str, None] = OrderedDict()
         # 在途的 API 应答（echo → Future）：引用内容要发 get_msg 再等回包
@@ -194,6 +202,10 @@ class QQAdapter(AdapterBase):
         self.access_token = self._load_access_token()
         host = cfg.get("host", "127.0.0.1")
         port = int(cfg.get("port", 8866))
+        self.trusted_hosts = LOCAL_HOSTS if is_loopback(str(host)) else None
+        if not self.access_token:
+            logger.warning("QQ 访问令牌为空：同一台电脑上的任何程序都能冒充 QQ 客户端连进来，"
+                           "建议在设置里填一个，并在 QQ 客户端里填同样的值")
 
         config = uvicorn.Config(self.app, host=host, port=port, log_level="warning")
         # 存引用：QQService.stop() 靠它置 should_exit（uvicorn 的优雅退出开关）。
@@ -223,7 +235,23 @@ class QQAdapter(AdapterBase):
 
         @app.websocket(path)
         async def qq_endpoint(websocket: WebSocket) -> None:
-            # token 校验在 accept 之前：不符就关，不做任何登记（1008 = policy）。
+            # 来源检查在 accept 之前，不符就关（1008 = policy）。
+            # ① 带 Origin 就拒：浏览器发起的 WS 一定带 Origin，而 NapCat / LLOneBot /
+            #    SnowLuma 这类原生客户端不带。浏览器 WS 不受 CORS 约束，不拦的话，
+            #    用户开着的任意网页都能连上来冒充 QQ 推消息（token 默认为空时尤其）。
+            origin = websocket.headers.get("origin")
+            if origin:
+                self._reject_origin.note(origin, path)
+                await websocket.close(code=1008)
+                return
+            # ② Host 白名单（只听本机时才查，见 __init__）
+            if self.trusted_hosts is not None and not host_allowed(
+                websocket.headers.get("host", ""), self.trusted_hosts
+            ):
+                self._reject_host.note(websocket.headers.get("host", ""), path)
+                await websocket.close(code=1008)
+                return
+            # ③ token 校验：不符就关，不做任何登记。
             if not self._token_ok(websocket):
                 logger.warning("QQ 反向 WS 握手 token 不符，拒绝连接")
                 await websocket.close(code=1008)
