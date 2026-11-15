@@ -451,8 +451,14 @@ def _build(bus: EventBus | None = None):
     stream = LogStream()
     stream.subscribe_bus(bus)
 
+    # M2：作息。日程在 sessions.db 的 schedules 表（独立连接），清单在 data/shared/。
+    schedules = ScheduleStore(store.path).open()
+    ledger = Ledger(Path(__file__).parent / "data" / "shared")
+    from core.ledger.digest import LedgerDigest
+
     bot = ChatLLM(bus=bus, memory_retriever=MemoryRetriever(curated),
-                  unread_inbox=UnreadInbox(store, eventlog, curated))
+                  unread_inbox=UnreadInbox(store, eventlog, curated),
+                  ledger_digest=LedgerDigest(ledger, schedules))
 
     # 第 8 步：适配器名册 + Router
     registry = AdapterRegistry()
@@ -522,10 +528,7 @@ def _build(bus: EventBus | None = None):
         m, router=router, store=store, bot=bot, bus=bus, eventlog=eventlog, pace=True,
     ))
 
-    # M2：作息。日程在 sessions.db 的 schedules 表（独立连接），清单在 data/shared/。
-    # PlanScheduler 到点写 decision + 喊 plan.fired；SpeechPump 取 pending 借 ChatLLM 开口。
-    schedules = ScheduleStore(store.path).open()
-    ledger = Ledger(Path(__file__).parent / "data" / "shared")
+    # M2：PlanScheduler 到点写 decision + 喊 plan.fired；SpeechPump 取 pending 借 ChatLLM 开口。
     plan_scheduler = PlanScheduler(schedules, ledger, bus=bus)
     # 内置 plan 插件（设提醒 / 记待办）调用时从这里取两份存储
     from core.plan import services as plan_services

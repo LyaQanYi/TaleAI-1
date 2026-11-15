@@ -216,7 +216,7 @@ class ChatLLM:
 
     def __init__(
         self, bus: EventBus | None = None, memory_retriever=None,
-        unread_inbox=None,
+        unread_inbox=None, ledger_digest=None,
     ) -> None:
         # 读配置（服务商 / 模型 / key）
         cfg = Config.load("config")
@@ -258,8 +258,10 @@ class ChatLLM:
         # 上下文装配（M0-03 欠的那半）：动态块由它准备，本类不自己拼（§18.5 硬规则 6）
         # memory_retriever（M1-07）：注入相关记忆；unread_inbox（M1-08）：
         # 注入"我不在时发生的事"。None = 不注入（CLI/测试裸装配）。
+        # ledger_digest（M2-06）：注入"她手上有什么事"（待办 / 将到点的提醒 / 最近决定）。
         self.context = ContextAssembler(
-            memory_retriever=memory_retriever, unread_inbox=unread_inbox
+            memory_retriever=memory_retriever, unread_inbox=unread_inbox,
+            ledger_digest=ledger_digest,
         )
         # 工具链（M0-05/06/07）：注册表提供工具表，执行器负责跑。
         # bus 透传给执行器——它执行完发 tool.called（§18.2），供日志页订阅。
