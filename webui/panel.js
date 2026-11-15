@@ -756,7 +756,7 @@ async function renderPlan() {
   const decisions = data.decisions.map((d) => {
     const state = DECISION_STATE[d.status] ?? d.status;
     const said = (d.messages || []).join(" / ");
-    return planRow(fmtTime(d.updated_at), d.status,
+    return planRow(fmtTime(d.updated_at), null,
       h("span", null, d.title || "", state ? h("span", { class: "tag" + (["dropped", "missed"].includes(d.status) ? " warn" : ""), text: `　${state}` }) : null),
       [said && `她说：${said}`, d.reason && `原因：${d.reason}`, whoOf(d)].filter(Boolean).join(" · "), null);
   });

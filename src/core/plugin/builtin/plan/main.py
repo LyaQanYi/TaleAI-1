@@ -47,7 +47,7 @@ _REMINDER_ADD = {
     "parameters": {
         "type": "object",
         "properties": {
-            "content": {"type": "string", "description": "到点要做的事，如\"提醒他睡觉\"\"问早安\""},
+            "content": {"type": "string", "description": "到点要做的事，直接写事情本身，如\"睡觉\"\"喝水\"\"问早安\"（会显示在面板上，不要写成\"提醒他…\"）"},
             "time": {"type": "string", "description": "HH:MM，24 小时制，如 21:00"},
             "repeat": {
                 "type": "string", "enum": list(cron.REPEATS), "default": "once",
