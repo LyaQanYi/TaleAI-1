@@ -138,6 +138,16 @@ class Inbox:
             except Exception:
                 logger.exception("处理消息时发生未预期的错误，已跳过这一批：session=%s", session_id)
 
+    def busy(self, session_id: str) -> bool:
+        """这条会话是不是"正在聊"：有人话还没说完（缓冲里有）或她正在回。
+
+        M2 主动发言（SpeechPump）据此排队——前台优先（§19-6）。
+        """
+        lock = self._locks.get(session_id)
+        if lock is not None and lock.locked():
+            return True
+        return any(key[0] == session_id and batch for key, batch in self._buf.items())
+
     def _spawn(self, coro: Awaitable[None]) -> asyncio.Task:
         task = asyncio.ensure_future(coro)
         self._tasks.add(task)

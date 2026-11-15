@@ -37,6 +37,10 @@ from core.log import Logging
 from core.log_stream import LogStream, StreamLogHandler
 from core.memory import CuratedStore, EventLog, record_event
 from core.memory.worker import MemoryWorker
+from core.ledger import Ledger
+from core.plan.schedule import ScheduleStore
+from core.plan.scheduler import PlanScheduler
+from core.plan.speech import SpeechPump
 from core.plugin.registry import PluginRegistry
 from core.session.store import SessionStore
 from core.wake import WakePolicy, load_wake_policy
@@ -512,12 +516,30 @@ def _build(bus: EventBus | None = None):
 
     router = Router(registry)
 
-    return store, router, bot, bus, adapters, stream, eventlog, qq_service, memory_worker
+    # 网页的输入缓冲在这里建（而不是让 serve_forever 自己建）：M2 的发言队列
+    # 要问它"这条会话是不是正在聊"（前台优先，§19-6）。
+    web_inbox = Inbox(lambda m: handle_message(
+        m, router=router, store=store, bot=bot, bus=bus, eventlog=eventlog, pace=True,
+    ))
+
+    # M2：作息。日程在 sessions.db 的 schedules 表（独立连接），清单在 data/shared/。
+    # PlanScheduler 到点写 decision + 喊 plan.fired；SpeechPump 取 pending 借 ChatLLM 开口。
+    schedules = ScheduleStore(store.path).open()
+    ledger = Ledger(Path(__file__).parent / "data" / "shared")
+    plan_scheduler = PlanScheduler(schedules, ledger, bus=bus)
+    speech_pump = SpeechPump(
+        ledger, store, bot, registry, bus=bus, eventlog=eventlog,
+        is_busy=lambda sid: web_inbox.busy(sid) or qq_inbox.busy(sid),
+    )
+
+    return (store, router, bot, bus, adapters, stream, eventlog, qq_service, memory_worker,
+            web_inbox, schedules, plan_scheduler, speech_pump)
 
 
 async def _serve() -> None:
     """默认跑法：起 WebSocket 服务（WebUI 聊天 + /logs 日志页）。"""
-    store, router, bot, bus, adapters, stream, eventlog, qq_service, memory_worker = _build()
+    (store, router, bot, bus, adapters, stream, eventlog, qq_service, memory_worker,
+     web_inbox, schedules, plan_scheduler, speech_pump) = _build()
     # 日志镜像：把 root 的每条日志也推到 /logs 页。**单独挂**而不是塞进
     # Logging.init()——init 的契约是「只加一个文件 handler」（test_log.py 钉着），
     # 破了它日志会重复落盘。服务退出时摘掉，保持干净。
@@ -549,8 +571,10 @@ async def _serve() -> None:
         await asyncio.gather(
             *(_safe_start(a) for a in adapters),
             serve_forever(adapters, router=router, store=store, bot=bot, bus=bus,
-                          eventlog=eventlog, wake=wake),
+                          eventlog=eventlog, wake=wake, inbox=web_inbox),
             memory_worker.run(),
+            plan_scheduler.run(),
+            speech_pump.run(),
         )
     finally:
         root.removeHandler(mirror)
@@ -559,6 +583,7 @@ async def _serve() -> None:
             await qq_service.stop()
         except Exception:
             logger.exception("停止 QQ 服务时出错（不影响退出）")
+        schedules.close()
         store.close()
 
 

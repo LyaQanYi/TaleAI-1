@@ -73,6 +73,18 @@ def _load_fallback_text() -> str:
         return "……嗯？我刚走神了，你再说一遍？"
 
 
+_PROACTIVE_DEFAULT = "现在是你主动开口的时候。这件事：{trigger}\n（{when}）\n用你平时的口吻主动发消息，照常写 <msg>。"
+
+
+def _load_proactive_template() -> str:
+    """读主动发言的触发说明模板（M2-04）。文件缺失用内置默认，不让到点提醒哑掉。"""
+    try:
+        return (_PROMPTS_DIR / "proactive.md").read_text(encoding="utf-8").strip()
+    except OSError:
+        logger.warning("读不到 proactive.md，用内置默认")
+        return _PROACTIVE_DEFAULT
+
+
 def _parse_arguments(raw: str) -> tuple[dict, bool]:
     """把 FC 传回的参数字符串解析成 dict。返回 (参数, 是否解析成功)。
 
@@ -329,6 +341,7 @@ class ChatLLM:
         images: list[str] | None = None,
         quoted: str = "",
         quoted_images: list[str] | None = None,
+        proactive: str = "",
     ) -> list[dict[str, str]]:
         """装配：稳定前缀（人格 system）+ 会动尾巴（历史 + 最新提问）。
 
@@ -356,6 +369,10 @@ class ChatLLM:
         进多模态数组——引用一张图却看不见它，等于没引用。
         **当前消息的图优先**占张数上限：合并后按 MAX_IMAGES_PER_MESSAGE 截断，
         防单请求体积失控（每张最多 8MB，8 张就是 85MB 量级，网关多半直接拒）。
+
+        proactive（M2-04）：主动发言的触发说明（已按模板渲染好）。给了它就**没有
+        用户提问**——说明包成第二个 <system_reminder> 贴在环境块后面，作为最后
+        一条 user 消息。system 一个字节都不变（缓存照常命中），说明也不落库。
 
         session（v4.14 补充）：它带来的 session_type 还决定 system 里注入哪份
         场景规则（私聊/群聊；见 Persona.build_system_prompt）。不给 session
@@ -396,11 +413,15 @@ class ChatLLM:
         parts: list[str] = []
         if reminder:
             parts.append(reminder)
+        if proactive:
+            # 触发说明里有用户当初口述的提醒内容（外部文本）——同样转义
+            parts.append(f"<system_reminder>\n{escape_tag_markers(proactive)}\n</system_reminder>")
         if quoted:
             # 引用内容也是**外部文本**（别人在 QQ 里说的话）——同样要转义，
             # 否则被引用的原话里写 <system_reminder>… 就能伪造系统块（同一个洞）。
             parts.append(_quoted_line(escape_tag_markers(quoted)))
-        parts.append(safe_question)
+        if not proactive or safe_question:
+            parts.append(safe_question)
         # 没 reminder 没 quoted 时 join 结果 == safe_question，文本路径不变
         text = "\n".join(parts)
 
@@ -582,6 +603,37 @@ class ChatLLM:
             tool_calls_made=tool_calls_made,
             stop_reason=stop_reason,
         )
+
+    async def speak(
+        self, trigger: str, history: list[dict[str, str]] | None = None,
+        session_id: str = "", *, session_type: str = "", owner: str = "",
+        when: str = "",
+    ) -> Reply:
+        """主动发言（M2-04，§八"借 ChatLLM 的嘴说话"）：没有用户提问，由触发说明开口。
+
+        与 run_loop 的区别：
+        - **不给工具**、只请求一轮：到点说一句话不该再去调工具（也就不会在提醒
+          里递归设提醒），也不需要熔断那套。
+        - 人格 / 规则 / 环境块 / 记忆照常装配——同一个塔利，只是这次她先开口。
+        - 模型一句都没说出来时，用"提醒一下：<内容>"兜底：到点提醒丢了比措辞
+          生硬更糟。
+
+        stop_reason 固定为 "proactive"（前端据此不显示"结束原因"）；没配模型时
+        返回空 messages + "not_configured"，由调用方决定丢弃。
+        """
+        session = SessionContext(session_id=session_id, session_type=session_type, owner=owner)
+        await self._refresh_config()
+        if self.client is None:
+            return Reply(session_id=session_id, messages=[], stop_reason="not_configured")
+        instruction = _load_proactive_template().replace("{trigger}", trigger).replace(
+            "{when}", when or "你之前答应过的")
+        messages = self.assemble_messages("", history, session=session, proactive=instruction)
+        assistant = await self._request(messages)
+        collected = [m for m in self._collect_messages(assistant.content or "") if m.strip()]
+        if not collected:
+            logger.warning("主动发言模型没说出话，用兜底：%r", trigger)
+            collected = [f"提醒一下：{trigger}"]
+        return Reply(session_id=session_id, messages=collected, stop_reason="proactive")
 
     def chat(
         self, session_id: str, user_question: str,
