@@ -267,3 +267,23 @@ def test_reply_is_reply_object():
     from core.adapter.base import Reply
     bot = make_bot([assistant("<msg>好</msg>")])
     assert isinstance(bot.chat("", "hi"), Reply)
+
+
+def test_tool_only_round_does_not_warn(caplog):
+    """只调工具、不说话的一轮（content 为空）是允许的，不该记"未含 <msg>"警告。"""
+    bot = make_bot([
+        assistant(None, [tool_call("c1", "ping", "{}")]),
+        assistant("<msg>pong 回来了</msg>"),
+    ])
+    with caplog.at_level("WARNING", logger="core.llm.chat_llm"):
+        reply = bot.chat("", "ping 一下")
+    assert reply.messages == ["pong 回来了"]
+    assert not [r for r in caplog.records if "未含 <msg>" in r.getMessage()]
+
+
+def test_non_empty_output_without_msg_still_warns(caplog):
+    bot = make_bot([assistant("裸文本回复")])
+    with caplog.at_level("WARNING", logger="core.llm.chat_llm"):
+        reply = bot.chat("", "你好")
+    assert reply.messages == ["裸文本回复"]
+    assert [r for r in caplog.records if "未含 <msg>" in r.getMessage()]

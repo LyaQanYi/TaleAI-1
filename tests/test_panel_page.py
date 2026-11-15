@@ -139,3 +139,19 @@ def test_chat_page_handles_proactive_frames():
     """M2-07：主动消息不当成"某句话的回复"——不动等待占位、不显示结束原因。"""
     html = _read("index.html")
     assert 'data.stop_reason === "proactive"' in html
+
+
+def test_chat_thinking_placeholder_removes_whole_row():
+    """撤"在想…"占位要连外层 .row 一起删，否则留下空行、多出一截间距。"""
+    html = _read("index.html")
+    assert "function dropPending()" in html and 'closest(".row")' in html
+    assert "pending.remove()" not in html
+
+
+def test_toast_does_not_cover_sidebar():
+    """侧栏展开时提示条从内容区起算，不压住侧栏底部的链接；收起 / 窄屏再贴左。"""
+    css = _read("panel.css")
+    assert "left: calc(224px + 40px)" in css
+    assert "body.nav-closed .toast" in css
+    # 窄屏规则必须写在基础规则之后，否则被同权重的后写规则盖掉
+    assert css.index("@media (max-width: 1100px) { .toast") > css.index(".toast {")
