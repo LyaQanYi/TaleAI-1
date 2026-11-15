@@ -38,6 +38,16 @@ DEFAULT_CONFIG = {
         "words": ["塔利"],
         "scope": "group",
     },
+    # 回复节奏：
+    #   debounce_seconds = 输入缓冲：同一个人在同一会话里连发几条时，最后一条之后静默
+    #     这么多秒才一起回（期间又来一条就重新计时）；0 = 关闭，来一条回一条
+    #   debounce_max_seconds = 缓冲封顶：从这一批第一条算起最多等这么久，防止一直有话就永远不开口
+    #   first_delay = 首条回复也按打字节奏停一下（已经花掉的思考时间会抵扣）
+    "reply": {
+        "debounce_seconds": 2.5,
+        "debounce_max_seconds": 10,
+        "first_delay": True,
+    },
     # 平台接入（M0 留空即可，YAGNI）
     "platforms": {},
     # 记忆系统配置（M1 新增）
