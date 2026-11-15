@@ -1,0 +1,6 @@
+{
+  "name": "plan",
+  "version": "0.1.0",
+  "description": "作息与公共清单（M2）：设提醒、记待办、记备忘。零权限，只读写本地 data/。",
+  "permissions": []
+}

@@ -27,23 +27,12 @@ def _page(name: str) -> str:
 # ---------- /settings 路由 ----------
 
 
-def test_settings_page_exists():
-    assert (WEBUI_DIR / "settings.html").is_file()
-
-
 def test_settings_redirects_to_the_page():
     a = WebAdapter()
     r = TestClient(a.app, follow_redirects=False).get("/settings")
     assert r.status_code in (307, 308)
-    # 面板 P0 起，/settings 进管理面板的“模型”页（旧页仍在 /static/settings.html）
+    # 面板 P0 起，/settings 进管理面板的“模型”页（旧设置页 M2 起已删除）
     assert "panel.html" in r.headers["location"]
-
-
-def test_settings_page_served():
-    a = WebAdapter()
-    r = TestClient(a.app).get("/static/settings.html")
-    assert r.status_code == 200
-    assert "text/html" in r.headers["content-type"]
 
 
 # ---------- 三页共享导航 ----------
@@ -63,33 +52,11 @@ def test_logs_has_nav_with_logs_active():
     assert re.search(r'class="active"\s+href="/logs"', page), "日志页没把「日志」标为当前"
 
 
-def test_settings_has_nav_with_settings_active():
-    page = _page("settings.html")
-    assert 'href="/"' in page
-    assert 'href="/logs"' in page
-    assert re.search(r'class="active"\s+href="/settings"', page), "设置页没把「设置」标为当前"
-
-
 def test_all_pages_link_the_three_sections():
-    for name in ("index.html", "logs.html", "settings.html"):
+    for name in ("index.html", "logs.html"):
         page = _page(name)
         for label in ("聊天", "设置", "日志"):
             assert label in page, f"{name} 缺导航项：{label}"
-
-
-# ---------- settings.html 的页面纪律 ----------
-
-
-def test_settings_uses_textcontent_no_innerhtml():
-    src = _page("settings.html")
-    assert "textContent" in src, "设置页没用 textContent（XSS 纪律）"
-    assert "innerHTML" not in src, "设置页不该塞 innerHTML"
-
-
-def test_settings_makes_no_framework_or_cdn_calls():
-    low = _page("settings.html").lower()
-    for m in ("vue", "react", "jquery", "cdn.", "unpkg.com", "jsdelivr"):
-        assert m not in low, f"设置页引了不该有的东西：{m!r}"
 
 
 # ---------- 控制面注入缝 ----------
@@ -208,23 +175,3 @@ def test_commands_accept_both_prefixes():
 # ---------- QQ 服务开关与抽屉（PR1）----------
 
 
-def test_settings_has_qq_service_block():
-    page = _page("settings.html")
-    assert "/api/platforms/qq" in page, "设置页没有 QQ 开关的接口引用"
-    assert re.search(r"function\s+buildQQDrawer", page), "没有 QQ 抽屉构建函数"
-    assert re.search(r"function\s+postQQ", page), "没有 QQ 开关提交函数"
-
-
-def test_settings_has_failure_banner_with_retry():
-    """顶部黄色告示条：滚动字 + 重试按钮（"跳闸"提示）。"""
-    page = _page("settings.html")
-    assert 'id="banner"' in page
-    assert 'id="bannerText"' in page
-    assert 'id="bannerRetry"' in page
-    assert "重试" in page
-
-
-def test_settings_has_drawer_sections():
-    page = _page("settings.html")
-    assert re.search(r"function\s+makeDrawer", page), "没有抽屉构建函数"
-    assert "drawer-head" in page and "drawer-body" in page

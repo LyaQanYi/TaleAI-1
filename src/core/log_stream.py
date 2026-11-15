@@ -46,8 +46,9 @@ HEARTBEAT_SEC = 15.0
 #: 每个订阅者的队列上限。满了就丢帧（丢日志无妨），绝不阻塞发布方。
 _QUEUE_MAX = 1000
 
-#: 要转成事件的类型（§18.2 目录里订阅者为「日志」的那三条）
-_BUS_EVENTS = ("message.received", "tool.called", "message.sent")
+#: 要转成事件的类型（§18.2 目录里订阅者为「日志」的那三条，外加 M2 的 plan.fired——
+#: 到点触发是后台自己动的，日志页最该看得到）
+_BUS_EVENTS = ("message.received", "tool.called", "message.sent", "plan.fired")
 
 
 def to_sse(frame: dict[str, Any]) -> str:

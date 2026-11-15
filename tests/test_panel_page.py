@@ -45,9 +45,13 @@ def test_panel_files_served():
         assert ctype in r.headers["content-type"], name
 
 
-def test_old_settings_page_still_reachable():
-    """旧设置页先保留一个版本（面板 04 Q6）。"""
-    assert TestClient(WebAdapter().app).get("/static/settings.html").status_code == 200
+def test_old_settings_page_redirects_to_panel():
+    """旧设置页保留了一个版本（面板 04 Q6），M2 起删除；旧地址跳到面板，不给 404。"""
+    from core.adapter.web.adapter import WEBUI_DIR
+
+    assert not (WEBUI_DIR / "settings.html").exists()
+    r = TestClient(WebAdapter().app, follow_redirects=False).get("/static/settings.html")
+    assert r.status_code in (307, 308) and "panel.html" in r.headers["location"]
 
 
 # ---------- 页面纪律 ----------
@@ -121,3 +125,17 @@ def test_dirty_bar_class_not_reused_for_row_state():
     assert 'classList.toggle("dirty"' not in js
     assert '"tag dirty"' not in js
     assert ".f.is-dirty" in css and 'classList.toggle("is-dirty"' in js
+
+
+def test_panel_has_plan_page():
+    """M2-07：侧栏有「日程」页，读写走 /api/plan。"""
+    html = _read("panel.html")
+    js = _read("panel.js")
+    assert 'href="#/plan"' in html
+    assert "plan: {" in js and "/api/plan" in js
+
+
+def test_chat_page_handles_proactive_frames():
+    """M2-07：主动消息不当成"某句话的回复"——不动等待占位、不显示结束原因。"""
+    html = _read("index.html")
+    assert 'data.stop_reason === "proactive"' in html
