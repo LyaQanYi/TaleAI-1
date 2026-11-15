@@ -899,7 +899,9 @@ function send() {
   ws.send(JSON.stringify({ content: text, session_id: SID, images: images }));
   inputEl.value = "";
   clearPendingImages();
-  sendEl.disabled = true;
+  // 不锁发送：可以连着发几条，服务端会等你说完再一起回（core/inbox.py 输入缓冲）。
+  // "在想…"始终只留一个，挪到最新这条下面——几条只会换来一次回复，多了会挂着不走。
+  if (pending) pending.remove();
   pending = addBubble("塔利在想…", "tale");
   pending.classList.add("thinking");
 }

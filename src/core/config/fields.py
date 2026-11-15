@@ -90,6 +90,18 @@ _CONFIG_FIELDS = (
         choices=("group", "all", "off"),
         help="group=仅群聊（私聊/网页直接回）；all=所有会话都要唤醒词；off=关闭",
     ),
+    FieldSpec(
+        key="reply.debounce_seconds", label="输入缓冲（秒）", type="number", default=2.5,
+        help="连发几条时，等最后一条之后静默这么久再一起回；0 = 来一条回一条",
+    ),
+    FieldSpec(
+        key="reply.debounce_max_seconds", label="缓冲最长（秒）", type="number", default=10,
+        help="从这一批第一条算起最多等这么久，一直有话也会开口",
+    ),
+    FieldSpec(
+        key="reply.first_delay", label="首条也按打字节奏", type="bool", default=True,
+        help="第一条回复按字数停一下再发；思考已经花掉的时间会抵扣",
+    ),
     # ---- 记忆系统（M1-10）：面板按这些定义自动渲染，改完下一轮生效 ----
     FieldSpec(
         key="llm.context_token_budget", label="动态块总预算（token）", type="number",

@@ -37,9 +37,19 @@ MAX_DELAY_SEC = 4.0
 def typing_delay(text: str) -> float:
     """下一条消息之前该停多久（秒）。
 
-    只用于**分条之间**——第一条不等待（前面模型自身的耗时已经在拖了，
-    前端也已经有"塔利在想…"的占位在顶着）。
+    用于**分条之间**；第一条用 `first_reply_delay`（同一公式，扣掉模型已经花掉的时间）。
     """
     chars = len(text or "")
     delay = chars * PER_CHAR_SEC + random.uniform(0.0, JITTER_SEC)
     return max(MIN_DELAY_SEC, min(MAX_DELAY_SEC, delay))
+
+
+def first_reply_delay(text: str, elapsed: float) -> float:
+    """第一条回复发出前还要停多久（秒）。
+
+    真人回消息也要先把第一句敲出来：按 `typing_delay` 的同一个公式算，
+    但收到消息到现在已经花掉的时间（模型思考、工具调用）要抵扣——
+    模型想了 5 秒，第一句不该再额外等 1 秒。抵扣完不足 0 就不等。
+    """
+    return max(0.0, typing_delay(text) - max(0.0, elapsed))
+

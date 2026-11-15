@@ -338,7 +338,7 @@ async def test_user_write_failure_skips_the_model_call(store, clean_bus, monkeyp
 # ---------- serve_forever：把适配器挂起来 ----------
 
 
-async def test_serve_forever_processes_one_message_then_stops(store, clean_bus):
+async def test_serve_forever_processes_one_message_then_stops(store, clean_bus, no_reply_pacing):
     """serve_forever 从适配器收件箱取消息并走完处理链，直到被取消。"""
     import main
 
@@ -399,7 +399,7 @@ async def test_safe_start_propagates_cancellation(clean_bus):
         await main._safe_start(CancelAdapter(bus=clean_bus))
 
 
-async def test_one_bad_adapter_does_not_kill_the_rest(store, clean_bus):
+async def test_one_bad_adapter_does_not_kill_the_rest(store, clean_bus, no_reply_pacing):
     """真接线：坏适配器 + 好适配器一起 gather，好的那个照常收消息。"""
     import main
 
@@ -449,3 +449,34 @@ async def test_safe_start_swallows_systemexit(clean_bus):
 
     # 不抛即通过
     await main._safe_start(ExitAdapter(bus=clean_bus))
+
+
+async def test_pace_delays_first_reply_by_typing_time(store, clean_bus, monkeypatch):
+    """pace=True：首条回复按打字节奏停一下再发；默认（测试）不停。"""
+    import main
+    import core.inbox
+
+    slept = []
+
+    async def fake_sleep(s):
+        slept.append(s)
+
+    monkeypatch.setattr(main.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main, "first_reply_delay", lambda text, elapsed: 1.25)
+    monkeypatch.setattr(main, "load_reply_pacing", lambda: core.inbox.ReplyPacing(first_delay=True))
+    adapter = FakeAdapter(bus=clean_bus)
+    reg = AdapterRegistry()
+    reg.register(adapter)
+
+    await main.handle_message(make_message("你好"), router=Router(reg), store=store,
+                              bot=FakeBot(), bus=clean_bus)
+    assert slept == []  # 没开 pace
+
+    await main.handle_message(make_message("在吗"), router=Router(reg), store=store,
+                              bot=FakeBot(), bus=clean_bus, pace=True)
+    assert slept == [1.25] and len(adapter.sent) == 2
+
+    monkeypatch.setattr(main, "load_reply_pacing", lambda: core.inbox.ReplyPacing(first_delay=False))
+    await main.handle_message(make_message("还在吗"), router=Router(reg), store=store,
+                              bot=FakeBot(), bus=clean_bus, pace=True)
+    assert slept == [1.25]  # 面板里关掉就不停

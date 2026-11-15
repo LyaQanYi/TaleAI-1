@@ -179,6 +179,7 @@ const PAGE_SECTIONS = {
   ],
   settings: [
     { title: "叫她", pick: (d, s) => s.key.startsWith("bot.") || s.key.startsWith("wake.") },
+    { title: "回复节奏", note: "改完下一条消息生效。", pick: (d, s) => s.key.startsWith("reply.") },
     { title: "记忆", note: "衰减与遗忘参数。改完下一轮提炼 / 整合时按新的算。", pick: (d, s) => s.key.startsWith("memory.") },
     { title: "其他", pick: () => true },
   ],

@@ -14,16 +14,19 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from pathlib import Path
 
 # 让 main.py 能找到 src/ 下的 core 包
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from core.adapter.base import AdapterBase, Message, Reply
+from core.adapter.pacing import first_reply_delay
 from core.adapter.registry import AdapterRegistry
 from core.adapter.router import Router, UnknownPlatformError
 from core.commands import is_reset_command
 from core.event_bus import EventBus
+from core.inbox import Inbox, load_reply_pacing
 from core.llm.chat_llm import ChatLLM
 from core.llm.persona_llm.base import (
     USER_PERSONA_PATH,
@@ -85,8 +88,12 @@ async def handle_message(
     bus: EventBus,
     eventlog: EventLog | None = None,
     wake: "WakePolicy | None" = None,
+    pace: bool = False,
 ) -> Reply | None:
     """处理一条入站消息：§18.1 第 3~9 步。
+
+    pace=True（服务默认，测试不开）：首条回复也按打字节奏停一下再发，
+    停多久见 `core.adapter.pacing.first_reply_delay`，配置 `reply.first_delay` 可关。
 
     返回发给用户的 Reply；被忽略（空白/平台不认识/未唤醒/落库失败）时返回 None。
 
@@ -95,6 +102,7 @@ async def handle_message(
     再 run 会直接报错。
     """
     session_id = message.session_id
+    started = time.monotonic()
 
     # 空白消息：不发请求、不落库（跟 CLI 的空行一致，省一次无意义调用）。
     # 例外：带图的消息即使没文字也算"有内容"——纯图片是合法输入（UX-06），
@@ -264,7 +272,11 @@ async def handle_message(
         # 落库失败不该妨碍用户看到回复——记日志，继续往下发
         logger.exception("assistant 消息落库失败")
 
-    # 第 8 步：发回
+    # 第 8 步：发回（首条也按打字节奏，已花掉的思考时间抵扣）
+    if pace and reply.messages and load_reply_pacing().first_delay:
+        delay = first_reply_delay(reply.messages[0], time.monotonic() - started)
+        if delay > 0:
+            await asyncio.sleep(delay)
     await _safe_send(adapter, reply)
 
     # 第 9 步：记录 message.sent 事件（M1-02：先落盘、后 publish）
@@ -337,6 +349,7 @@ async def serve_forever(
     bus: EventBus,
     eventlog: EventLog | None = None,
     wake: "WakePolicy | None" = None,
+    inbox: Inbox | None = None,
 ) -> None:
     """常驻前台循环：每个适配器一个 recv 协程（§18.5「每平台 1 个 recv 协程」）。
 
@@ -346,16 +359,18 @@ async def serve_forever(
     handle_message 每条消息现读策略文件——改完唤醒词下一句就生效。
     显式传了策略（测试/想钉住行为）就用传进来的那份。
     """
+    # 输入缓冲（core/inbox.py）：同一个人连发几条时等他说完再一起回，同会话串行。
+    # Inbox 内部兜住 handle_message 的意外，单条消息绝不终止整个前台循环。
+    inbox = inbox or Inbox(lambda m: handle_message(
+        m, router=router, store=store, bot=bot, bus=bus,
+        eventlog=eventlog, wake=wake, pace=True,
+    ))
+
     async def pump(adapter: AdapterBase) -> None:
         while True:
             message = await adapter.recv()
-            # handle_message 内部已把所有失败收成返回值，不会抛；
-            # 这里再兜一层，保证单条消息的意外绝不终止整个前台循环。
             try:
-                await handle_message(
-                    message, router=router, store=store, bot=bot, bus=bus,
-                    eventlog=eventlog, wake=wake,
-                )
+                await inbox.submit(message)
             except Exception:
                 logger.exception("处理消息时发生未预期的错误，已跳过这条")
 
@@ -455,10 +470,12 @@ def _build(bus: EventBus | None = None):
     async def _on_qq_message(message: Message) -> None:
         # router 在本函数后面才创建——闭包按引用解析，只有真收到 QQ 消息
         # （那时一切早已就位）才会被调用。
-        await handle_message(
-            message, router=router, store=store, bot=bot, bus=bus,
-        )
+        # 和网页一样过输入缓冲（core/inbox.py），首条也按打字节奏。
+        await qq_inbox.submit(message)
 
+    qq_inbox = Inbox(lambda m: handle_message(
+        m, router=router, store=store, bot=bot, bus=bus, pace=True,
+    ))
     qq_service = QQService(adapter=qq_adapter, on_message=_on_qq_message)
 
     # 设置读写（UX-05）+ 图片上传（UX-07）+ QQ 开关（QQService）各造一个

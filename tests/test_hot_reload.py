@@ -274,7 +274,7 @@ def _group_msg(mid, content):
                    session_type="group")
 
 
-async def test_serve_forever_reads_wake_policy_per_message(tmp_path, monkeypatch):
+async def test_serve_forever_reads_wake_policy_per_message(tmp_path, monkeypatch, no_reply_pacing):
     """改完唤醒词不用重启：serve_forever 不再缓存策略，下一句就按新词判。
 
     旧实现启动时读一次、整个进程用那份（§19-13）。这里第一句被"还没配词"
