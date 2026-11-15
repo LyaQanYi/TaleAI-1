@@ -135,3 +135,14 @@ def test_memory_params_are_declared_and_match_defaults():
     for key, default in expected.items():
         assert key in by_key, f"面板缺少字段 {key}"
         assert by_key[key].default == default, f"{key} 默认值与 default.py 不一致"
+
+
+def test_plan_params_are_declared_and_match_defaults():
+    """M2：作息参数要能在面板改；默认值必须与 default.py 一致。"""
+    from core.config.default import DEFAULT_CONFIG
+
+    by_key = {f.key: f for f in FIELDS["config"]}
+    for name, default in DEFAULT_CONFIG["plan"].items():
+        key = f"plan.{name}"
+        assert key in by_key, f"面板缺少字段 {key}"
+        assert by_key[key].default == default, f"{key} 默认值与 default.py 不一致"
