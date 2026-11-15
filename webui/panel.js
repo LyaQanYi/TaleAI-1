@@ -247,7 +247,7 @@ function fieldRow(d, s) {
   const row = h("div", { class: "f", "data-key": k });
   const paintState = () => {
     const dirty = isDirty(d, s);
-    row.classList.toggle("dirty", dirty);
+    row.classList.toggle("is-dirty", dirty);
     const def = norm(s, s.default);
     if (dirty) fill(st, h("span", { class: "uns", text: "未保存" }), " · ",
       h("button", { type: "button", text: "撤回", onclick: () => { FORM.val[k] = s.sensitive ? "" : FORM.saved[k]; rerender(); } }));
@@ -544,7 +544,7 @@ function paintChrome() {
     if (f.dir !== dir) { dir = f.dir; rows.push(h("div", { class: "td", text: dir })); }
     let tag = null;
     const meta = ED.files[f.k];
-    if (fileDirty(f.k)) tag = h("span", { class: "tag dirty", text: "已改" });
+    if (fileDirty(f.k)) tag = h("span", { class: "tag is-dirty", text: "已改" });
     else if (meta && meta.error) tag = h("span", { class: "tag warn", text: "编码不对" });
     else if (f.view) tag = h("span", { class: "tag", text: "预览" });
     else if (f.ro) tag = h("span", { class: "tag", text: "只读" });
@@ -557,7 +557,7 @@ function paintChrome() {
   fill($("#ideTabs"), ...ED.open.map((k) => {
     const f = fileOf(k);
     return h("div", { class: "tab" + (k === ED.active ? " on" : ""), onclick: (e) => { if (!e.target.closest(".x")) openTab(k); } },
-      h("span", { text: f.name }), fileDirty(k) ? h("span", { class: "tag dirty", text: "已改" }) : roNow(k) ? h("span", { class: "tag", text: "只读" }) : null,
+      h("span", { text: f.name }), fileDirty(k) ? h("span", { class: "tag is-dirty", text: "已改" }) : roNow(k) ? h("span", { class: "tag", text: "只读" }) : null,
       h("button", { class: "x", type: "button", text: "×", title: "关闭", "aria-label": "关闭 " + f.name, onclick: () => closeTab(k) }));
   }));
 

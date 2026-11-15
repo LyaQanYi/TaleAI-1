@@ -110,3 +110,14 @@ def test_panel_nav_covers_p0_pages_and_old_pages():
     for p in ("persona", "model", "platforms", "settings"):
         assert f'href="#/{p}"' in html, f"侧栏缺 {p}"
     assert 'href="/logs"' in html and 'href="/"' in html
+
+
+def test_dirty_bar_class_not_reused_for_row_state():
+    # .dirty 是底部浮条（position:fixed + visibility:hidden）；字段行若也挂 .dirty，
+    # 输入第一个字就会被藏起来、丢焦点（v0.1.0 的回归）。行和标签的“已改”用 .is-dirty。
+    css = _read("panel.css")
+    js = _read("panel.js")
+    assert not re.search(r"\.\w[\w-]*\.dirty\b|\.dirty\.(?!on\b)", css)
+    assert 'classList.toggle("dirty"' not in js
+    assert '"tag dirty"' not in js
+    assert ".f.is-dirty" in css and 'classList.toggle("is-dirty"' in js
