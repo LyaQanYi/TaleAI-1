@@ -494,12 +494,14 @@ def _build(bus: EventBus | None = None):
     from core.config.api import build_platforms_routes, build_settings_routes
     from core.image_api import build_upload_routes
     from core.persona_api import build_persona_routes
+    from core.plan_api import build_plan_routes
 
     def _control_plane(app) -> None:
         build_settings_routes()(app)
         build_persona_routes()(app)
         build_upload_routes()(app)
         build_platforms_routes(qq_service)(app)
+        build_plan_routes(schedules, ledger)(app)
 
     web_adapter = WebAdapter(
         bus=bus, port=_resolve_ws_port(),

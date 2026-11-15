@@ -680,6 +680,16 @@ async function renderReply(data) {
     (msgs.length ? msgs : ["已重置"]).forEach(function (m) { addSystemNote(m); });
     return;
   }
+  // 主动消息（M2：日程到点她自己开口）：不是对哪句话的回复——不动"在想…"占位、
+  // 不动发送按钮（用户可能正等着另一条回复），也不显示"结束原因"。
+  if (data.stop_reason === "proactive") {
+    for (var j = 0; j < msgs.length; j++) {
+      if (j) await sleep(typingDelayMs(msgs[j]));
+      addBubble(msgs[j], "tale");
+    }
+    refreshSessions();
+    return;
+  }
   // 回复到了：先把"在想…"占位换成第一条，并立刻恢复输入——
   // 别让用户等所有气泡都敲完才轮到打字（真人聊天也不会这么等）
   if (pending) { pending.remove(); pending = null; }

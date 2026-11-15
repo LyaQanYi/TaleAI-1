@@ -121,3 +121,17 @@ def test_dirty_bar_class_not_reused_for_row_state():
     assert 'classList.toggle("dirty"' not in js
     assert '"tag dirty"' not in js
     assert ".f.is-dirty" in css and 'classList.toggle("is-dirty"' in js
+
+
+def test_panel_has_plan_page():
+    """M2-07：侧栏有「日程」页，读写走 /api/plan。"""
+    html = _read("panel.html")
+    js = _read("panel.js")
+    assert 'href="#/plan"' in html
+    assert "plan: {" in js and "/api/plan" in js
+
+
+def test_chat_page_handles_proactive_frames():
+    """M2-07：主动消息不当成"某句话的回复"——不动等待占位、不显示结束原因。"""
+    html = _read("index.html")
+    assert 'data.stop_reason === "proactive"' in html

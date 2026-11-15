@@ -697,8 +697,84 @@ function restoreBuiltin() {
 /* =====================================================================
    路由
    ===================================================================== */
+/* =====================================================================
+   日程（M2）：她到点要主动找谁、手上的待办、做过的决定、备忘
+   ===================================================================== */
+const DECISION_STATE = { recorded: "", pending: "待发", sent: "已发出", dropped: "没发出", missed: "错过了" };
+const TASK_STATE = { open: "未完成", done: "完成了", cancelled: "不做了" };
+const fmtTime = (t) => {
+  if (!t) return "";
+  const d = new Date(t * 1000), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const whoOf = (e) => [e.owner, e.session_id].filter(Boolean).join(" · ");
+
+async function planAction(url, body, okText) {
+  const { json } = await postJSON(url, body).catch(() => ({ json: { ok: false, error: "请求没发出去" } }));
+  if (json.ok) { toast(okText); renderPlan(); } else toast(json.error || "没成功", { bad: true });
+}
+function planRow(label, sub, main, hint, actions) {
+  return h("div", { class: "f" },
+    h("div", null, h("label", { text: label }), sub ? h("span", { class: "fk", text: sub }) : null),
+    h("div", null, main, hint ? h("div", { class: "hint", text: hint }) : null),
+    h("div", { class: "st" }, actions));
+}
+function planGroup(title, note, rows, empty) {
+  return h("section", { class: "group" }, h("h2", { text: title }), note ? h("p", { text: note }) : null,
+    rows.length ? rows : h("p", { class: "muted", text: empty }));
+}
+async function renderPlan() {
+  const root = $("#page");
+  const head = h("div", { class: "page-head" }, h("h1", { text: "日程" }),
+    h("p", { text: "她到点要主动找谁、手上的待办、做过的决定。提醒在聊天里跟她说就能设（比如“每天 21:00 提醒我睡觉”）。" }));
+  if (!root.querySelector(".group")) fill(root, head, h("p", { class: "muted", text: "读取中…" }));
+  let data;
+  try { data = await getJSON("/api/plan"); if (!data.ok) throw new Error(data.error); }
+  catch (e) { fill(root, head, h("p", { class: "warn", text: "读取失败：" + e.message })); return; }
+  if (currentPage !== "plan") return;
+
+  const sched = data.schedules.map((s) => planRow(
+    s.payload.content || "（没写内容）", s.id,
+    h("span", null, s.describe, h("span", { class: "tag" + (s.enabled ? "" : " warn"), text: s.enabled ? `　下次 ${fmtTime(s.next_fire)}` : "　已停用" })),
+    whoOf(s) + (s.last_fire ? ` · 上次 ${fmtTime(s.last_fire)}` : ""),
+    [h("button", { type: "button", text: s.enabled ? "停用" : "启用",
+        onclick: () => planAction(`/api/plan/schedules/${encodeURIComponent(s.id)}`, { enabled: !s.enabled }, s.enabled ? "已停用" : "已启用") }),
+     " ",
+     h("button", { type: "button", text: "删除",
+        onclick: () => confirm(`删除日程「${s.payload.content || s.id}」？`) && planAction(`/api/plan/schedules/${encodeURIComponent(s.id)}`, { delete: true }, "已删除") })]));
+
+  const tasks = data.tasks.map((t) => planRow(
+    t.title || "（无标题）", t.id,
+    h("span", { class: "tag" + (t.status === "open" ? " is-dirty" : ""), text: TASK_STATE[t.status] || t.status }),
+    [t.body, whoOf(t), fmtTime(t.updated_at)].filter(Boolean).join(" · "),
+    [t.status === "open"
+      ? h("button", { type: "button", text: "标为完成", onclick: () => planAction(`/api/plan/tasks/${encodeURIComponent(t.id)}`, { status: "done" }, "已标为完成") })
+      : h("button", { type: "button", text: "重新打开", onclick: () => planAction(`/api/plan/tasks/${encodeURIComponent(t.id)}`, { status: "open" }, "已重新打开") }),
+     " ",
+     h("button", { type: "button", text: "删除", onclick: () => planAction(`/api/plan/tasks/${encodeURIComponent(t.id)}`, { delete: true }, "已删除") })]));
+
+  const decisions = data.decisions.map((d) => {
+    const state = DECISION_STATE[d.status] ?? d.status;
+    const said = (d.messages || []).join(" / ");
+    return planRow(fmtTime(d.updated_at), d.status,
+      h("span", null, d.title || "", state ? h("span", { class: "tag" + (["dropped", "missed"].includes(d.status) ? " warn" : ""), text: `　${state}` }) : null),
+      [said && `她说：${said}`, d.reason && `原因：${d.reason}`, whoOf(d)].filter(Boolean).join(" · "), null);
+  });
+
+  const notes = data.notes.map((n) => planRow(n.title || "（无标题）", n.id, n.body || "", [whoOf(n), fmtTime(n.updated_at)].filter(Boolean).join(" · "),
+    h("button", { type: "button", text: "删除", onclick: () => planAction(`/api/plan/notes/${encodeURIComponent(n.id)}`, { delete: true }, "已删除") })));
+
+  fill(root, head,
+    h("div", { class: "form" },
+      planGroup("日程", "到点她会主动发消息；正在聊天时会等一会儿再说，等太久就不说了。", sched, "还没有日程。"),
+      planGroup("待办", null, tasks, "没有待办。"),
+      planGroup("她做过的决定", "答应了什么、什么时候提醒过、哪次没发出去。只读。", decisions, "还没有。"),
+      planGroup("备忘", null, notes, "没有备忘。")));
+}
+
 const PAGES = {
   persona: { group: "她", title: "人格", render: renderPersona },
+  plan: { group: "她", title: "日程", render: renderPlan },
   model: { group: "接入", title: "模型", render: () => renderFields("model") },
   platforms: { group: "接入", title: "平台", render: () => renderFields("platforms") },
   settings: { group: "系统", title: "设置", render: () => renderFields("settings") },
