@@ -45,9 +45,13 @@ def test_panel_files_served():
         assert ctype in r.headers["content-type"], name
 
 
-def test_old_settings_page_still_reachable():
-    """旧设置页先保留一个版本（面板 04 Q6）。"""
-    assert TestClient(WebAdapter().app).get("/static/settings.html").status_code == 200
+def test_old_settings_page_redirects_to_panel():
+    """旧设置页保留了一个版本（面板 04 Q6），M2 起删除；旧地址跳到面板，不给 404。"""
+    from core.adapter.web.adapter import WEBUI_DIR
+
+    assert not (WEBUI_DIR / "settings.html").exists()
+    r = TestClient(WebAdapter().app, follow_redirects=False).get("/static/settings.html")
+    assert r.status_code in (307, 308) and "panel.html" in r.headers["location"]
 
 
 # ---------- 页面纪律 ----------

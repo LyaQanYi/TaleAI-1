@@ -340,9 +340,7 @@ function aboutGroup() {
   const ver = h("span", { class: "mono", text: "…" });
   getJSON("/api/about").then((j) => { ver.textContent = j.ok ? `TaleAI ${j.version}` : "读不到"; }).catch(() => { ver.textContent = "读不到"; });
   return h("section", { class: "group" }, h("h2", { text: "关于" }),
-    h("div", { class: "f" }, h("div", null, h("label", { text: "版本" })), h("div", null, ver), h("div")),
-    h("div", { class: "f" }, h("div", null, h("label", { text: "旧版设置页" })),
-      h("div", null, h("a", { href: "/static/settings.html", text: "/static/settings.html" }), h("div", { class: "hint", text: "面板接管了它的全部功能；旧页先保留一个版本，之后删除" })), h("div")));
+    h("div", { class: "f" }, h("div", null, h("label", { text: "版本" })), h("div", null, ver), h("div")));
 }
 
 /* 未保存浮条：所有页面的改动一起算 */
