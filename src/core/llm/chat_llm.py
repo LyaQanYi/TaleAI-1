@@ -464,8 +464,10 @@ class ChatLLM:
         兜底时记 warning：模型没按契约输出是可观测事件，不该悄悄放过。
         但用户仍能看到原文——解析失败不能让他收到空白（§19-1）。
         """
+        # 空输出不记：只调工具、不说话的那一轮 content 就是空的，这是 run_loop
+        # 明确允许的（见其 docstring 对 §19-2 的偏离），不是契约破坏。
         parsed: ParsedOutput = self.parser.parse(content)
-        if parsed.is_fallback:
+        if parsed.is_fallback and content.strip():
             logger.warning("模型输出未含 <msg>，按纯文本兜底：%r", content[:120])
         return parsed.messages
 

@@ -638,6 +638,11 @@ function addSystemNote(text) {
 // ---- WebSocket ---------------------------------------------------------------
 var ws = null;
 var pending = null;   // 等待回复时占位的那条气泡
+// 撤掉占位：要连外层 .row 一起删——只删气泡会留下一个空行，#messages 的 gap
+// 让"我"和第一条回复之间凭空多出一截间距。
+function dropPending() {
+  if (pending) { (pending.closest(".row") || pending).remove(); pending = null; }
+}
 var intentionalClose = false;   // 主动关闭（切换会话）时不必自动重连
 
 // ---- 分条渲染：模拟真人打字 --------------------------------------------------
@@ -673,7 +678,7 @@ async function renderReply(data) {
   // 跟后端"忘掉线之前"保持一致——记忆和界面看到的是同一段。不回执出气泡
   // （走系统提示），跟清空按钮的观感统一。
   if (data.stop_reason === "reset") {
-    if (pending) { pending.remove(); pending = null; }
+    dropPending();
     messagesEl.innerHTML = "";
     sendEl.disabled = false;
     inputEl.focus();
@@ -682,7 +687,7 @@ async function renderReply(data) {
   }
   // 回复到了：先把"在想…"占位换成第一条，并立刻恢复输入——
   // 别让用户等所有气泡都敲完才轮到打字（真人聊天也不会这么等）
-  if (pending) { pending.remove(); pending = null; }
+  dropPending();
   if (msgs.length) addBubble(msgs[0], "tale");
   sendEl.disabled = false;
   inputEl.focus();
@@ -901,7 +906,7 @@ function send() {
   clearPendingImages();
   // 不锁发送：可以连着发几条，服务端会等你说完再一起回（core/inbox.py 输入缓冲）。
   // "在想…"始终只留一个，挪到最新这条下面——几条只会换来一次回复，多了会挂着不走。
-  if (pending) pending.remove();
+  dropPending();
   pending = addBubble("塔利在想…", "tale");
   pending.classList.add("thinking");
 }
