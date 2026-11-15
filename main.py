@@ -473,8 +473,9 @@ def _build(bus: EventBus | None = None):
         # 和网页一样过输入缓冲（core/inbox.py），首条也按打字节奏。
         await qq_inbox.submit(message)
 
+    # eventlog 必须传：不传 QQ 的收发就不落 events.jsonl，记忆提炼和未读增量都看不到 QQ。
     qq_inbox = Inbox(lambda m: handle_message(
-        m, router=router, store=store, bot=bot, bus=bus, pace=True,
+        m, router=router, store=store, bot=bot, bus=bus, eventlog=eventlog, pace=True,
     ))
     qq_service = QQService(adapter=qq_adapter, on_message=_on_qq_message)
 

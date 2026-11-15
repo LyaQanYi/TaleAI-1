@@ -480,3 +480,16 @@ async def test_pace_delays_first_reply_by_typing_time(store, clean_bus, monkeypa
     await main.handle_message(make_message("还在吗"), router=Router(reg), store=store,
                               bot=FakeBot(), bus=clean_bus, pace=True)
     assert slept == [1.25]  # 面板里关掉就不停
+
+
+def test_qq_handler_records_to_eventlog():
+    """QQ 入口必须把 eventlog 传给 handle_message，否则 QQ 的对话不进记忆（v0.1.0 的缺陷）。"""
+    import inspect
+    import re
+
+    import main
+
+    src = inspect.getsource(main._build)
+    call = re.search(r"qq_inbox = Inbox\(lambda m: handle_message\((.*?)\)\)", src, re.S)
+    assert call, "QQ 入口的 handle_message 调用找不到了"
+    assert "eventlog=eventlog" in call.group(1)
