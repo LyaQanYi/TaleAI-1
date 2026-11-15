@@ -31,6 +31,7 @@ from core.image_store import IMAGE_PLACEHOLDER, MAX_IMAGES_PER_MESSAGE, to_data_
 from core.llm.context import ContextAssembler, SessionContext, escape_tag_markers
 from core.llm.persona_llm.base import Persona
 from core.plugin.registry import PluginRegistry
+from core.tool_context import ToolContext, tool_context
 from core.xml_parser import ParsedOutput, XmlParser
 
 logger = logging.getLogger(__name__)
@@ -490,8 +491,13 @@ class ChatLLM:
             logger.warning("模型输出未含 <msg>，按纯文本兜底：%r", content[:120])
         return parsed.messages
 
-    def _tool_message(self, sdk_call) -> dict:
-        """执行一次工具调用，返回回喂给模型的 tool 消息。"""
+    def _tool_message(self, sdk_call, ctx: ToolContext | None = None) -> dict:
+        """执行一次工具调用，返回回喂给模型的 tool 消息。
+
+        ctx（M2-05）：这次调用的会话上下文，执行期间经 contextvars 交给工具
+        （设提醒要知道 owner / 会话）。由 run_loop 按本轮局部变量传入——不放
+        实例属性，多会话并发跑 FC 循环时才不会串。
+        """
         raw_args = sdk_call.function.arguments
         args, ok = _parse_arguments(raw_args)
 
@@ -501,10 +507,11 @@ class ChatLLM:
                            sdk_call.function.name, raw_args)
             payload = {"error": f"参数不是合法 JSON：{raw_args}"}
         else:
-            result = self.executor.execute(
-                ToolCall(call_id=sdk_call.id, name=sdk_call.function.name, arguments=args),
-                session_id=self._current_session_id,
-            )
+            with tool_context(ctx):
+                result = self.executor.execute(
+                    ToolCall(call_id=sdk_call.id, name=sdk_call.function.name, arguments=args),
+                    session_id=self._current_session_id,
+                )
             # 成功回结果，失败回原因——模型得知道为什么失败才能纠正
             payload = (
                 result.data if result.ok and result.data is not None
@@ -558,6 +565,11 @@ class ChatLLM:
         tools = self.registry.tool_schemas()
         # 记下本次会话 ID，_tool_message 发 tool.called 时用（旁路事件标注来源）
         self._current_session_id = session_id
+        # 工具的会话上下文（M2-05）。平台取会话 id 前缀（web: / qq: / cli:）——
+        # 前缀由各适配器约定，本身就是平台名。
+        ctx = ToolContext(session_id=session_id, owner=owner,
+                          platform=session_id.split(":", 1)[0] if ":" in session_id else "",
+                          session_type=session_type)
 
         collected: list[str] = []
         tool_calls_made = 0
@@ -586,7 +598,7 @@ class ChatLLM:
 
             messages.append(assistant)
             for call in calls:
-                messages.append(self._tool_message(call))
+                messages.append(self._tool_message(call, ctx))
                 tool_calls_made += 1
         else:
             stop_reason = "max_steps"  # 没 break = 撞到轮次上限

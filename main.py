@@ -527,6 +527,10 @@ def _build(bus: EventBus | None = None):
     schedules = ScheduleStore(store.path).open()
     ledger = Ledger(Path(__file__).parent / "data" / "shared")
     plan_scheduler = PlanScheduler(schedules, ledger, bus=bus)
+    # 内置 plan 插件（设提醒 / 记待办）调用时从这里取两份存储
+    from core.plan import services as plan_services
+
+    plan_services.configure(schedules, ledger)
     speech_pump = SpeechPump(
         ledger, store, bot, registry, bus=bus, eventlog=eventlog,
         is_busy=lambda sid: web_inbox.busy(sid) or qq_inbox.busy(sid),
