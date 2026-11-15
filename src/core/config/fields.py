@@ -153,6 +153,26 @@ _CONFIG_FIELDS = (
         default=2000,
         help="记忆注入的单独预算；总预算见「动态块总预算」",
     ),
+    # ---- 作息（M2）：日程到点主动发言 ----
+    FieldSpec(
+        key="plan.enabled", label="到点主动发言", type="bool", default=True,
+        help="关掉后日程照存，但到点不发消息",
+    ),
+    FieldSpec(
+        key="plan.misfire_grace_minutes", label="错过补发（分钟）", type="number",
+        default=10,
+        help="程序没开着时错过了触发点：这么久之内启动还会补发一次，超过就记为错过",
+    ),
+    FieldSpec(
+        key="plan.queue_timeout_minutes", label="排队上限（分钟）", type="number",
+        default=5,
+        help="正在聊天时主动消息先排队，等这么久还没机会发出就丢弃",
+    ),
+    FieldSpec(
+        key="plan.busy_seconds", label="算作正在聊（秒）", type="number",
+        default=60,
+        help="会话最后一条消息在这么多秒之内，就先不插话",
+    ),
 )
 
 _PERSONA_FIELDS = (

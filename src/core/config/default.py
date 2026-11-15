@@ -65,4 +65,11 @@ DEFAULT_CONFIG = {
         "retrieve_top_k": 20,  # 检索最多返回 N 条记忆
         "retrieve_token_budget": 2000,  # 记忆注入的 token 预算
     },
+    # 作息（M2）：日程到点主动发言
+    "plan": {
+        "enabled": True,  # 关掉 = 日程照存，但到点不发言（也不记 missed）
+        "misfire_grace_minutes": 10,  # 停机跨过触发点：这么久之内启动还补发一次，超过记 missed
+        "queue_timeout_minutes": 5,  # 正在聊天时主动消息排队，超过这么久还没发出就丢弃（§19-6）
+        "busy_seconds": 60,  # 会话最后活跃在这么多秒内 = 正在聊，主动消息先等等
+    },
 }

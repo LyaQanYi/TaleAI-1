@@ -244,6 +244,30 @@ def _build_unread_inbox(
     )
 
 
+def _build_ledger_digest(
+    session: SessionContext,
+    now: datetime,
+    data: dict | None = None,
+    digest=None,
+) -> ContextBlock:
+    """清单摘要块（M2-06）：她手上的待办、接下来要主动找对方的事、最近的决定。
+
+    order 35：排在记忆（30）之后、未读（40）之前——§19-17 的"sessions 摘要 >
+    memory > 跨会话事件"里，清单是她自己的状态，比别处会话的原文更该保住。
+    条目是用户口述的文本（外部来源），整块转义。失败 → 空块，不拖累对话。
+    """
+    if digest is None or not session.owner:
+        return ContextBlock(name="ledger_digest", kind="dynamic", order=35, content="")
+    try:
+        content = digest.render(session.owner, now.timestamp())
+    except Exception:
+        logger.exception("清单摘要失败，本轮不注入（owner=%s）", session.owner)
+        content = ""
+    return ContextBlock(
+        name="ledger_digest", kind="dynamic", order=35, content=escape_tag_markers(content)
+    )
+
+
 # 源名 → 构造函数。M1/M2 的新源（memory_hits / ledger_digest / unread_inbox）
 # 在这里登记，同时在下面的 spec 里挂上配额。
 # 第三个参数 data 是"本次装配的原料"（如 extract 的事件批次）——不是所有源
@@ -263,6 +287,7 @@ _SPECS: dict[str, ContextSpec] = {
         sources=[
             ("chat_env", 0, 0),
             ("memory_hits", 20, 2000),
+            ("ledger_digest", 18, 600),
             ("unread_inbox", 20, 1000),
         ],
     ),
@@ -282,6 +307,7 @@ class ContextAssembler:
         clock: Callable[[], datetime] | None = None,
         memory_retriever=None,
         unread_inbox=None,
+        ledger_digest=None,
     ) -> None:
         # 时钟是个可替换的接缝：测试里注入固定时间，装配结果就完全确定，
         # 不用 sleep、也不用 mock 时间库。
@@ -294,6 +320,12 @@ class ContextAssembler:
             self._builders["memory_hits"] = (
                 lambda session, now, data: _build_memory_hits(
                     session, now, data, retriever=memory_retriever
+                )
+            )
+        if ledger_digest is not None:
+            self._builders["ledger_digest"] = (
+                lambda session, now, data: _build_ledger_digest(
+                    session, now, data, digest=ledger_digest
                 )
             )
         if unread_inbox is not None:

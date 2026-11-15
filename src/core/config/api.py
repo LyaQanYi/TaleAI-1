@@ -99,7 +99,7 @@ def _bad(msg: str, code: int = 400) -> JSONResponse:
 #: 宣传：多数项下一句对话即生效，个别项列出来（web.port 是监听端口，换端口
 #: 只能重启；QQ 的地址/密钥在"下次开闸"读；persona.json 没有消费者，真正
 #: 生效的是 persona.md；plugins.json 的读者排 M1-10，现在改了暂不生效）。
-#: 注意：前端展示时已加「已保存。」前缀（settings.html），这里不重复写。
+#: 注意：前端展示时已加「已保存。」前缀（panel.js），这里不重复写。
 _APPLY_NOTES = {
     "config": "模型/网关/唤醒词等改动下一句对话即生效",
     "secrets": "密钥改动下一句对话即生效",
